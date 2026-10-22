@@ -63,7 +63,11 @@ const startSession = async (client: Client, artifact: string) => {
   return sessionId;
 };
 
-it("runs a full radare2 session lifecycle through MCP", async () => {
+// The fake engine is an extensionless Node script with a shebang; Windows
+// spawns owned providers through CreateProcessW, which cannot run it.
+const posixEngine = it.skipIf(process.platform === "win32");
+
+posixEngine("runs a full radare2 session lifecycle through MCP", async () => {
   const directory = await mkdtemp(join(tmpdir(), "rea-r2-session-"));
   const fakeRadare2 = join(directory, "fake-radare2");
   const artifact = join(directory, "fixture.bin");
@@ -262,41 +266,44 @@ it("reports retained cleanup when a failed start cannot verify the session stop"
   expect(content).toContain("session-1");
 });
 
-it("runs caller-selected initial commands inside the start admission", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "rea-r2-init-"));
-  const fakeRadare2 = join(directory, "fake-radare2");
-  const artifact = join(directory, "fixture.bin");
-  await writeFile(artifact, "fixture");
-  await writeFakeRadare2(fakeRadare2);
-  const { client } = await createProviderEnvironmentMcpHarness({
-    directory,
-    clientName: "radare2-init",
-    serverOptions: { environment: { REA_R2_COMMAND: fakeRadare2 } },
-  });
+posixEngine(
+  "runs caller-selected initial commands inside the start admission",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-r2-init-"));
+    const fakeRadare2 = join(directory, "fake-radare2");
+    const artifact = join(directory, "fixture.bin");
+    await writeFile(artifact, "fixture");
+    await writeFakeRadare2(fakeRadare2);
+    const { client } = await createProviderEnvironmentMcpHarness({
+      directory,
+      clientName: "radare2-init",
+      serverOptions: { environment: { REA_R2_COMMAND: fakeRadare2 } },
+    });
 
-  const started = await client.callTool({
-    name: "start_radare2_session",
-    arguments: { path: artifact, initial_commands: ["aaa", "aflj"] },
-  });
-  expect(started.isError).not.toBe(true);
-  const sessionId = (
-    started.structuredContent as { readonly session_id: string }
-  ).session_id;
-  const status = await client.callTool({
-    name: "radare2_session_status",
-    arguments: { session_id: sessionId },
-  });
-  expect(JSON.stringify(status.structuredContent).includes('"ready"')).toBe(
-    true,
-  );
-  await client.callTool({
-    name: "close_radare2_session",
-    arguments: { session_id: sessionId },
-  });
+    const started = await client.callTool({
+      name: "start_radare2_session",
+      arguments: { path: artifact, initial_commands: ["aaa", "aflj"] },
+    });
+    expect(started.isError).not.toBe(true);
+    const sessionId = (
+      started.structuredContent as { readonly session_id: string }
+    ).session_id;
+    const status = await client.callTool({
+      name: "radare2_session_status",
+      arguments: { session_id: sessionId },
+    });
+    expect(JSON.stringify(status.structuredContent).includes('"ready"')).toBe(
+      true,
+    );
+    await client.callTool({
+      name: "close_radare2_session",
+      arguments: { session_id: sessionId },
+    });
 
-  const failed = await client.callTool({
-    name: "start_radare2_session",
-    arguments: { path: artifact, initial_commands: ["__fail__"] },
-  });
-  expect(failed.isError).toBe(true);
-});
+    const failed = await client.callTool({
+      name: "start_radare2_session",
+      arguments: { path: artifact, initial_commands: ["__fail__"] },
+    });
+    expect(failed.isError).toBe(true);
+  },
+);

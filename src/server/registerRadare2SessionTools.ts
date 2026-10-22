@@ -77,6 +77,9 @@ export const registerRadare2SessionTools = (
               );
               // A failed close keeps the engine owned; retaining its cleanup
               // state keeps the unresolved resource visible and retryable.
+              // Bind to the manager-retained failure so a verified retry also
+              // clears this wrapper's cleanup status; otherwise the session
+              // surface stays blocked after the engine is actually stopped.
               return {
                 ...executed,
                 ok: false as const,
@@ -87,7 +90,7 @@ export const registerRadare2SessionTools = (
                         failure,
                         closed.error,
                         start.name,
-                      ),
+                      ).bindCleanupDependencies([closed.error]),
               };
             }
             return started;
