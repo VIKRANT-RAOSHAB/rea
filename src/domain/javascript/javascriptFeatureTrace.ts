@@ -182,9 +182,12 @@ const terminalPaths = (
 
 const pathTo = (
   node: ApplicationNode,
-  predecessors: ApplicationFeatureTraversal["predecessors"],
+  walks: ApplicationFeatureTraversal["predecessors"],
   edgeById: ReadonlyMap<string, ApplicationEdge>,
 ): ApplicationFeatureTraceResult["paths"][number] | null => {
+  // Follow one walk's chain so a path never changes direction midway.
+  const predecessors =
+    walks.find((walk) => walk.has(node.node_id)) ?? new Map<string, never>();
   const nodeIds = [node.node_id];
   const edgeIds: string[] = [];
   let current = node.node_id;

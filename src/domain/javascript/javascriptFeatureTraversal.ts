@@ -19,7 +19,11 @@ interface Predecessor {
 export interface ApplicationFeatureTraversal {
   readonly nodes: ApplicationNode[];
   readonly edges: ApplicationEdge[];
-  readonly predecessors: ReadonlyMap<string, Predecessor>;
+  /**
+   * One map per single-direction walk, in walk order. Each map's chains use
+   * only that walk's edges; a node's path comes from the first map naming it.
+   */
+  readonly predecessors: readonly ReadonlyMap<string, Predecessor>[];
 }
 
 /** Traverse a JAG without treating edge inference as observed reachability. */
@@ -28,10 +32,47 @@ export const traverseApplicationFeature = (
   seedNodeIds: readonly string[],
   direction: "outgoing" | "incoming" | "both",
 ): ApplicationFeatureTraversal => {
-  const nodeById = new Map(graph.nodes.map((node) => [node.node_id, node]));
-  const adjacency = buildAdjacency(graph.edges, direction);
-  const visited = new Set(seedNodeIds);
-  const retainedEdges = new Map<string, ApplicationEdge>();
+  const scope: TraversalScope = {
+    nodeById: new Map(graph.nodes.map((node) => [node.node_id, node])),
+    visited: new Set(seedNodeIds),
+    retainedEdges: new Map<string, ApplicationEdge>(),
+  };
+  // "both" is the union of what the seeds reach and what reaches them. A walk
+  // that could reverse direction midway would leave a seed through a shared
+  // container and return everything that container holds.
+  const predecessors = (
+    direction === "both" ? (["outgoing", "incoming"] as const) : [direction]
+  ).map((walk) =>
+    collectReachable(scope, buildAdjacency(graph.edges, walk), seedNodeIds),
+  );
+  return {
+    nodes: [...scope.visited]
+      .map((nodeId) => scope.nodeById.get(nodeId))
+      .filter((node): node is ApplicationNode => node !== undefined)
+      .sort((left, right) =>
+        compareUnicodeCodePoints(left.node_id, right.node_id),
+      ),
+    edges: [...scope.retainedEdges.values()].sort((left, right) =>
+      compareUnicodeCodePoints(left.edge_id, right.edge_id),
+    ),
+    predecessors,
+  };
+};
+
+/** Nodes and edges collected across every walk of one traversal. */
+interface TraversalScope {
+  readonly nodeById: ReadonlyMap<string, ApplicationNode>;
+  readonly visited: Set<string>;
+  readonly retainedEdges: Map<string, ApplicationEdge>;
+}
+
+/** Breadth-first closure in one direction, keeping the first path to each node. */
+const collectReachable = (
+  { nodeById, visited, retainedEdges }: TraversalScope,
+  adjacency: ReadonlyMap<string, AdjacencyEntry[]>,
+  seedNodeIds: readonly string[],
+): ReadonlyMap<string, Predecessor> => {
+  const reached = new Set(seedNodeIds);
   const predecessors = new Map<string, Predecessor>();
   const queue = [...seedNodeIds];
   for (let offset = 0; offset < queue.length; offset += 1) {
@@ -39,8 +80,9 @@ export const traverseApplicationFeature = (
     if (current === undefined) continue;
     for (const entry of adjacency.get(current) ?? []) {
       retainedEdges.set(entry.edge.edge_id, entry.edge);
-      if (visited.has(entry.nextNodeId)) continue;
+      if (reached.has(entry.nextNodeId)) continue;
       if (!nodeById.has(entry.nextNodeId)) continue;
+      reached.add(entry.nextNodeId);
       visited.add(entry.nextNodeId);
       predecessors.set(entry.nextNodeId, {
         previousNodeId: current,
@@ -49,37 +91,25 @@ export const traverseApplicationFeature = (
       queue.push(entry.nextNodeId);
     }
   }
-  return {
-    nodes: [...visited]
-      .map((nodeId) => nodeById.get(nodeId))
-      .filter((node): node is ApplicationNode => node !== undefined)
-      .sort((left, right) =>
-        compareUnicodeCodePoints(left.node_id, right.node_id),
-      ),
-    edges: [...retainedEdges.values()].sort((left, right) =>
-      compareUnicodeCodePoints(left.edge_id, right.edge_id),
-    ),
-    predecessors,
-  };
+  return predecessors;
 };
 
 const buildAdjacency = (
   edges: readonly ApplicationEdge[],
-  direction: "outgoing" | "incoming" | "both",
+  direction: "outgoing" | "incoming",
 ): ReadonlyMap<string, AdjacencyEntry[]> => {
   const adjacency = new Map<string, AdjacencyEntry[]>();
-  for (const edge of edges) {
-    if (direction !== "incoming")
+  for (const edge of edges)
+    if (direction === "outgoing")
       addAdjacency(adjacency, edge.source_node_id, {
         edge,
         nextNodeId: edge.target_node_id,
       });
-    if (direction !== "outgoing")
+    else
       addAdjacency(adjacency, edge.target_node_id, {
         edge,
         nextNodeId: edge.source_node_id,
       });
-  }
   for (const entries of adjacency.values())
     entries.sort((left, right) =>
       compareUnicodeCodePoints(
