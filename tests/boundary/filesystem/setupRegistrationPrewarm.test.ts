@@ -6,6 +6,7 @@ import { createDoctorHostFixture } from "../../../src/application/Doctor.fixture
 import { systemSetupHost } from "../../../src/application/SetupHost.js";
 import { runSetup } from "../../../src/application/Setup.js";
 import { options } from "../../../src/application/Setup.fixture.js";
+import type { SetupProgressEvent } from "../../../src/application/SetupTypes.js";
 import type { SetupRegistrationPrewarm } from "../../../src/application/SetupRegistrationPrewarm.js";
 import { supportedClients } from "../../../src/application/SupportedClients.js";
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
@@ -22,69 +23,96 @@ const packageRunnerEnvironment = {
   HOPPER_LAUNCHER_PATH: "/fixture/Hopper",
 } as const;
 
-it("setup prewarms the pinned runner cache once after configuring clients", async () => {
-  const root = await createTestTempDirectory("rea-setup-prewarm-");
-  const client = supportedClients(root, "darwin", {}).find(
-    (candidate) => candidate.name === "cursor",
-  );
-  if (client === undefined) throw new Error("Cursor registration is missing");
-  await mkdir(dirname(client.configPath), { recursive: true });
-  const doctor = createDoctorHostFixture({
-    clientRegistrations: () =>
-      readClientRegistrationStatuses(root, undefined, {
-        platform: "darwin",
-        environment: {},
-      }),
-    providerInspections: () =>
-      Promise.resolve([
-        {
-          id: "hopper",
-          configured: true,
-          available: false,
-          providerVersion: "6",
-          registrationEnvironment: {},
-          checks: [
-            {
-              name: "hopper-license",
-              ok: false,
-              code: "unavailable",
-              detail: "Runtime license is unavailable",
-              classification: "missing_analysis_engine",
-              remediation: null,
-            },
-          ],
-        },
-      ]),
-  });
-  let prewarmCalls = 0;
-  const prewarmResult: SetupRegistrationPrewarm = { status: "warmed" };
-  const host = {
-    ...systemSetupHost(doctor, packageRunnerEnvironment),
-    // The host reports the developer machine's Node; pin a supported one
-    // so readiness does not depend on the local runtime.
-    nodeVersion: "24.22.1",
-    detectedClients: () => Promise.resolve([client]),
-    supportedClients: () => Promise.resolve([client]),
-    prewarmRegistrationRunner: () => {
-      prewarmCalls += 1;
-      return Promise.resolve(prewarmResult);
-    },
-  };
-  const result = await runSetup(
-    {
-      ...options(true),
-      clientIds: ["cursor"],
-      installSkill: false,
-      proposeHopper: false,
-      readinessScope: { clients: [], providers: [], skill: false },
-    },
-    host,
-  );
-  expect(result.status).toBe("ready");
-  expect(result.clients.cursor).toMatchObject({ status: "configured" });
-  expect(prewarmCalls).toBe(1);
-  expect(result.prewarm).toEqual(prewarmResult);
-});
+it.each([
+  { status: "warmed" },
+  { status: "skipped", reason: "direct_launcher" },
+] satisfies readonly SetupRegistrationPrewarm[])(
+  "settles registration prewarm progress after a $status result",
+  async (prewarmResult) => {
+    const root = await createTestTempDirectory("rea-setup-prewarm-");
+    const client = supportedClients(root, "darwin", {}).find(
+      (candidate) => candidate.name === "cursor",
+    );
+    if (client === undefined) throw new Error("Cursor registration is missing");
+    await mkdir(dirname(client.configPath), { recursive: true });
+    const doctor = createDoctorHostFixture({
+      clientRegistrations: () =>
+        readClientRegistrationStatuses(root, undefined, {
+          platform: "darwin",
+          environment: {},
+        }),
+      providerInspections: () =>
+        Promise.resolve([
+          {
+            id: "hopper",
+            configured: true,
+            available: false,
+            providerVersion: "6",
+            registrationEnvironment: {},
+            checks: [
+              {
+                name: "hopper-license",
+                ok: false,
+                code: "unavailable",
+                detail: "Runtime license is unavailable",
+                classification: "missing_analysis_engine",
+                remediation: null,
+              },
+            ],
+          },
+        ]),
+    });
+    let prewarmCalls = 0;
+    const progress: SetupProgressEvent[] = [];
+    const host = {
+      ...systemSetupHost(doctor, packageRunnerEnvironment),
+      // The host reports the developer machine's Node; pin a supported one
+      // so readiness does not depend on the local runtime.
+      nodeVersion: "24.22.1",
+      detectedClients: () => Promise.resolve([client]),
+      supportedClients: () => Promise.resolve([client]),
+      prewarmRegistrationRunner: () => {
+        prewarmCalls += 1;
+        return Promise.resolve(prewarmResult);
+      },
+    };
+    const result = await runSetup(
+      {
+        ...options(true),
+        clientIds: ["cursor"],
+        installSkill: false,
+        proposeHopper: false,
+        readinessScope: { clients: [], providers: [], skill: false },
+        onProgress: (event) => progress.push(event),
+      },
+      host,
+    );
+    expect(result.status).toBe("ready");
+    expect(result.clients.cursor).toMatchObject({ status: "configured" });
+    expect(prewarmCalls).toBe(1);
+    expect(result.prewarm).toEqual(prewarmResult);
+    expect(
+      progress.filter(
+        ({ actionId }) => actionId === "prewarm_registration_runner",
+      ),
+    ).toEqual([
+      {
+        actionId: "prewarm_registration_runner",
+        label: "REA package-runner cache",
+        state: "started",
+        detail: "Preparing the pinned package entry",
+      },
+      {
+        actionId: "prewarm_registration_runner",
+        label: "REA package-runner cache",
+        state: "completed",
+        ...(prewarmResult.status === "skipped"
+          ? { detail: "Not needed for a direct launcher" }
+          : {}),
+      },
+    ]);
+  },
+);
 
 it("keeps setup ready when registration prewarm fails, with a warning progress event", async () => {
   const root = await createTestTempDirectory("rea-setup-prewarm-fail-");

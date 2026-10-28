@@ -418,11 +418,14 @@ const runSetupWorkflow = async (
         state: "warning",
         detail: prewarm.reason,
       });
-    else if (prewarm.status === "warmed")
+    else
       emitProgress(options, {
         actionId: "prewarm_registration_runner",
         label: "REA package-runner cache",
         state: "completed",
+        ...(prewarm.status === "skipped"
+          ? { detail: "Not needed for a direct launcher" }
+          : {}),
       });
   }
   const doctor = summarizeDoctor(await host.doctor(readinessScope));
