@@ -25,6 +25,7 @@ vi.mock("node:v8", async (importOriginal) => {
   };
 });
 
+import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { estimateJavaScriptStaticApplicationProjection } from "../../../src/domain/javascript/javascriptApplicationProjectionResources.js";
 import type { JavaScriptArtifactFile } from "../../../src/domain/javascript/javascriptArtifactFiles.js";
 import { analyzeJavaScriptStaticSource } from "../../../src/domain/javascript/javascriptStaticAnalysis.js";
@@ -65,16 +66,17 @@ const sourceFile = (path: string): JavaScriptArtifactFile => ({
 const ready =
   'process.stdout.write(JSON.stringify({kind:"ready",heap_limit_bytes:require("node:v8").getHeapStatistics().heap_size_limit})+"\\n");';
 
-// Replay the recorded checkpoint and complete without a semantic transfer, so
-// only static and application-projection charges reach the shared budget.
+// Replay a recorded checkpoint per source path (the default otherwise) and
+// complete without a semantic transfer, so only static and
+// application-projection charges reach the shared budget.
 const replayingAnalyzer =
-  (checkpointPath: string) =>
+  (checkpointPath: string, byPath: Readonly<Record<string, string>> = {}) =>
   async (request: Parameters<typeof spawnOwnedProviderProcess>[0]) =>
     spawnOwnedProviderProcess({
       ...request,
       arguments: [
         "-e",
-        `${ready} const fs=require("node:fs"); const {createHash}=require("node:crypto"); const checkpoint=fs.readFileSync(${JSON.stringify(checkpointPath)}); require("node:readline").createInterface({input:process.stdin}).on("line", line => { const request=JSON.parse(line); if(request.file) {fs.writeFileSync(request.id+".static.json",checkpoint); process.stdout.write(JSON.stringify({kind:"static",id:request.id,bytes:checkpoint.length,sha256:createHash("sha256").update(checkpoint).digest("hex")})+"\\n");} else process.stdout.write(JSON.stringify({kind:"complete",id:request.id,descriptor:null})+"\\n"); });`,
+        `${ready} const fs=require("node:fs"); const {createHash}=require("node:crypto"); const byPath=${JSON.stringify(byPath)}; require("node:readline").createInterface({input:process.stdin}).on("line", line => { const request=JSON.parse(line); if(request.file) {const checkpoint=fs.readFileSync(byPath[request.file.path] ?? ${JSON.stringify(checkpointPath)}); fs.writeFileSync(request.id+".static.json",checkpoint); process.stdout.write(JSON.stringify({kind:"static",id:request.id,bytes:checkpoint.length,sha256:createHash("sha256").update(checkpoint).digest("hex")})+"\\n");} else process.stdout.write(JSON.stringify({kind:"complete",id:request.id,descriptor:null})+"\\n"); });`,
       ],
     });
 
@@ -138,6 +140,64 @@ it("admits application relationships up to the shared parent budget and keeps st
         application_projection_required_bytes: projection,
       },
     });
+  } finally {
+    await worker.close();
+  }
+});
+
+it("charges nothing for a large rejected checkpoint before a valid source", async () => {
+  const facts = javaScriptWorkerStaticAnalysisSchema.parse(
+    analyzeJavaScriptStaticSource(text),
+  );
+  const checkpoint = JSON.stringify(facts);
+  const checkpointBytes = Buffer.byteLength(checkpoint);
+  // A 3 MiB checkpoint cut off inside a string: within the checkpoint ceiling
+  // and the parent's decode headroom, but not JSON.
+  const malformed = `${checkpoint.slice(0, -1)},"padding":"${"x".repeat(3 * MIB)}`;
+  const malformedCharge = Buffer.byteLength(malformed) * STATIC_EXPANSION;
+  const staticCharge = checkpointBytes * STATIC_EXPANSION;
+  const projection = estimateJavaScriptStaticApplicationProjection(
+    facts,
+    checkpointBytes,
+    "b.mjs",
+  );
+  // The valid last source fits with half of the rejected checkpoint's static
+  // charge to spare, so any charge kept for rejected bytes refuses it.
+  const budget = staticCharge + projection + Math.floor(malformedCharge / 2);
+  expect(malformedCharge).toBeGreaterThan(2 * (staticCharge + projection));
+  parentHeap.remainingBytes = TRANSFER_RESERVE + 2 * budget;
+  const root = await createTestTempDirectory("rea-shared-budget-rejected-");
+  const checkpointPath = join(root, "checkpoint.json");
+  const malformedPath = join(root, "malformed.json");
+  await writeFile(checkpointPath, checkpoint);
+  await writeFile(malformedPath, malformed);
+  const worker = new JavaScriptAnalysisWorker(
+    { heapMb: 128, timeoutMs: 30_000 },
+    replayingAnalyzer(checkpointPath, { "a.mjs": malformedPath }),
+    2,
+  );
+  try {
+    const rejected = await worker.analyze(sourceFile("a.mjs"), {
+      nodes: 100,
+      unknowns: 100,
+    });
+    if (rejected.ok)
+      throw new Error("Expected the malformed checkpoint to fail");
+    expect(rejected.error.javascript).toBeNull();
+    expect(rejected.error.error).toMatchObject({
+      _tag: "AnalysisOutputError",
+    });
+    expect(projectAnalysisError(rejected.error.error).code).toBe(
+      "unreadable_output",
+    );
+
+    const valid = await worker.analyze(sourceFile("b.mjs"), {
+      nodes: 100,
+      unknowns: 100,
+    });
+    if (!valid.ok) throw valid.error.error;
+    expect(valid.value.javascript.storage).toEqual(facts.storage);
+    expect(valid.value.applicationProjectionFailure).toBeUndefined();
   } finally {
     await worker.close();
   }
