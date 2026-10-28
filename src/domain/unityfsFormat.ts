@@ -18,9 +18,8 @@ export const hasUnityFsHeader = (bytes: Uint8Array): boolean =>
  */
 export const UNITYFS_FLAG_COMPRESSION_MASK = 0x3f;
 export const UNITYFS_FLAG_BLOCKS_INFO_AT_END = 0x80;
-export const UNITYFS_FLAG_BLOCK_INFO_NEEDS_PADDING = 0x200;
+const UNITYFS_FLAG_PADDING_OR_LEGACY_ENCRYPTION = 0x200;
 export const UNITYFS_FLAG_USES_BUNDLE_ENCRYPTION = 0x1400;
-export const UNITYFS_FLAG_USES_BUNDLE_ENCRYPTION_LEGACY = 0x200;
 
 /** Per-block compression values in the low six flag bits. */
 export const UNITYFS_COMPRESSION_NONE = 0;
@@ -45,6 +44,37 @@ const unityfsHeaderAligned = (
     enginePatch !== undefined &&
     enginePatch >= 15);
 
+type UnityFsRevision = readonly [major: number, minor: number, patch: number];
+
+const parseUnityFsRevision = (value: string): UnityFsRevision | undefined => {
+  // Unity-CN appends cN to otherwise ordinary release revisions.
+  const match = /^([1-9]\d*)\.(\d+)\.(\d+)(?:[abfp]\d+(?:c\d+)?)?$/u.exec(
+    value,
+  );
+  if (match === null) return undefined;
+  const major = Number(match[1]),
+    minor = Number(match[2]),
+    patch = Number(match[3]);
+  return [major, minor, patch].every(Number.isSafeInteger)
+    ? [major, minor, patch]
+    : undefined;
+};
+
+const hasModernUnityFsFlags = ([
+  major,
+  minor,
+  patch,
+]: UnityFsRevision): boolean => {
+  if (major < 2020) return false;
+  if (major > 2022) return true;
+  const minorThreshold = major === 2022 ? 1 : 3;
+  const patchThreshold = major === 2020 ? 34 : major === 2021 ? 2 : 1;
+  return (
+    minor > minorThreshold ||
+    (minor === minorThreshold && patch >= patchThreshold)
+  );
+};
+
 /** Interpret the reused padding/encryption bit once, retaining ambiguous revisions. */
 export const unityFsLayoutFlags = (
   formatVersion: number,
@@ -55,49 +85,21 @@ export const unityFsLayoutFlags = (
   readonly dataPadding: boolean | undefined;
   readonly encrypted: boolean | undefined;
 } => {
-  // Unity-CN appends cN to otherwise ordinary release revisions.
-  const match = /^([1-9]\d*)\.(\d+)\.(\d+)(?:[abfp]\d+(?:c\d+)?)?$/u.exec(
-    engineVersion,
-  );
-  const numbers = match?.slice(1, 4).map(Number);
-  const revision =
-    numbers?.every(Number.isSafeInteger) === true ? numbers : undefined;
-  const [major, minor, patch] = revision ?? [];
-  const modern =
-    major === undefined || minor === undefined || patch === undefined
-      ? undefined
-      : major >= 2023 ||
-        (major === 2022 && (minor > 1 || (minor === 1 && patch >= 1))) ||
-        (major === 2021 && (minor > 3 || (minor === 3 && patch >= 2))) ||
-        (major === 2020 && (minor > 3 || (minor === 3 && patch >= 34)));
-  const legacyBit = (flags & UNITYFS_FLAG_USES_BUNDLE_ENCRYPTION_LEGACY) !== 0;
+  const revision = parseUnityFsRevision(engineVersion);
+  const reusedBit = (flags & UNITYFS_FLAG_PADDING_OR_LEGACY_ENCRYPTION) !== 0;
   const modernBits = (flags & UNITYFS_FLAG_USES_BUNDLE_ENCRYPTION) !== 0;
-  const encrypted =
-    modern === true
-      ? modernBits
-      : modern === false
-        ? modernBits
-          ? undefined
-          : legacyBit
-        : legacyBit || modernBits
-          ? undefined
-          : false;
+  if (revision === undefined)
+    return {
+      headerAligned: formatVersion >= 7 ? true : undefined,
+      dataPadding: reusedBit ? undefined : false,
+      encrypted: reusedBit || modernBits ? undefined : false,
+    };
+  const modern = hasModernUnityFsFlags(revision);
   return {
-    headerAligned:
-      formatVersion >= 7
-        ? true
-        : revision === undefined
-          ? undefined
-          : unityfsHeaderAligned(formatVersion, major, minor, patch),
-    dataPadding:
-      modern === true
-        ? (flags & UNITYFS_FLAG_BLOCK_INFO_NEEDS_PADDING) !== 0
-        : modern === false
-          ? false
-          : legacyBit
-            ? undefined
-            : false,
-    encrypted,
+    headerAligned: unityfsHeaderAligned(formatVersion, ...revision),
+    dataPadding: modern && reusedBit,
+    // New encryption bits in an old producer declaration are inconsistent.
+    encrypted: modern ? modernBits : modernBits ? undefined : reusedBit,
   };
 };
 
