@@ -1,6 +1,7 @@
 import { hasGodotPckHeader } from "../../domain/godotPckFormat.js";
 import { hasUnityFsHeader } from "../../domain/unityfsFormat.js";
 import { detectHexRecordEncoding } from "../../domain/firmware/hexRecords.js";
+import { recognizeEspImage } from "../../domain/firmware/espImage.js";
 import type { ArtifactClassificationEvidence } from "../ArtifactClassificationProbe.js";
 import { asarHeaderAdmissionFailure } from "../AsarHeader.js";
 import { hasDestinationPath } from "../ArtifactPaths.js";
@@ -287,6 +288,7 @@ export const rootOccurrenceFor = (
       "node-sea",
       "intel-hex",
       "srec",
+      "esp-image",
     ].includes(metadata.format)
       ? "container"
       : artifactRoleForFormat(metadata.path, metadata.format).kind,
@@ -582,7 +584,8 @@ const artifactRoleForFormat = (
     format === "godot-pck" ||
     format === "unityfs" ||
     format === "intel-hex" ||
-    format === "srec"
+    format === "srec" ||
+    format === "esp-image"
   )
     return { kind: "container", format };
   return {
@@ -604,6 +607,7 @@ export const classifyArtifactBytes = (
   if (hasUnityFsHeader(prefix)) return "unityfs";
   const hexRecords = detectHexRecordEncoding(prefix);
   if (hexRecords !== undefined) return hexRecords;
+  if (recognizeEspImage(prefix, fileSize) === "esp-image") return "esp-image";
   if (hasBinaryPlistSignature(prefix)) return "plist";
   if (hasXmlPlistSignature(prefix)) return "plist";
   const fatFormat = classifyFatArtifact(evidence, fileSize);

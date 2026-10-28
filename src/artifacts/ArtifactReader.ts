@@ -182,6 +182,7 @@ export interface ArtifactReader {
     | "node-sea"
     | "intel-hex"
     | "srec"
+    | "esp-image"
     | "file";
   entries(
     signal?: AbortSignal,

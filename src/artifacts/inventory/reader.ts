@@ -79,6 +79,11 @@ export const inventoryCoverage = (
               "Intel HEX/S-record inventory decodes data records into address-contiguous regions. It does not establish CPU, byte order, memory map, or that a declared start address is executable; gaps are unwritten, not zero.",
             ]
           : []),
+        ...(reader.format === "esp-image"
+          ? [
+              "ESP image inventory reads the header-declared segments, checksum, appended SHA-256, descriptor and Secure Boot v2 signature blocks. Segment classification follows ESP-IDF v6.1 should_map and should_load for a cold boot and does not check RAM ranges; signatures are not cryptographically verified, and code is not disassembled.",
+            ]
+          : []),
         ...traversal.limitations,
       ],
     };
@@ -105,7 +110,8 @@ export const inventoryCoverage = (
     format === "unityfs" ||
     format === "node-sea" ||
     format === "intel-hex" ||
-    format === "srec"
+    format === "srec" ||
+    format === "esp-image"
   )
     return {
       coverage: { scope: "container-entries", status: "unknown" },
