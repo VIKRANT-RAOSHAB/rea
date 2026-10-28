@@ -72,6 +72,7 @@ export const liveBinaryTargetSummaryVariants = [
       "asar",
       "godot-pck",
       "unityfs",
+      "uimage",
       "dmg",
       "pkg",
       "intel-hex",
@@ -82,7 +83,7 @@ export const liveBinaryTargetSummaryVariants = [
   z.object({
     ...identity,
     kind: z.literal("artifact"),
-    format: z.enum(["plist", "javascript", "source-map", "uimage"]),
+    format: z.enum(["plist", "javascript", "source-map"]),
     architecture: z.null(),
   }),
 ] as const;

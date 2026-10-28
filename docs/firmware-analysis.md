@@ -312,4 +312,5 @@ is extractable as `payload.bin`, and multi-file images additionally expose
 each sub-image as `image-<n>.bin` from the stored size table. Declared
 addresses are facts from the header, not proven entry points, and compressed
 payloads stay as stored. Intel HEX/S-record and FIT images are separate
-readers and are not covered here.
+readers and are not covered here. See [U-Boot legacy uImage](uimage.md) for
+component padding, preserved names, resource policies and verification scope.

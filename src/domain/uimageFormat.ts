@@ -1,6 +1,6 @@
 import { crc32 } from "node:zlib";
 
-import { err, ok, type Result } from "../../domain/result.js";
+import { err, ok, type Result } from "./result.js";
 
 /**
  * U-Boot legacy uImage header (U-Boot `include/image.h`, all fields
@@ -41,9 +41,11 @@ export interface UImageHeaderFields {
   readonly typeName: string;
   readonly compression: number;
   readonly compressionName: string;
-  readonly name: string;
+  readonly name: string | null;
+  readonly nameBytesHex: string;
 }
 
+// IDs are append-only in U-Boot include/image.h, pinned ece349ade2973e220f524ce59e59711cc919263f.
 const ARCH_NAMES: Readonly<Record<number, string>> = {
   0: "invalid",
   1: "alpha",
@@ -58,16 +60,20 @@ const ARCH_NAMES: Readonly<Record<number, string>> = {
   10: "sparc",
   11: "sparc64",
   12: "m68k",
-  13: "microblaze",
-  14: "nios2",
-  15: "blackfin",
-  16: "avr32",
-  17: "st200",
-  18: "sandbox",
-  19: "nds32",
-  20: "openrisc",
-  21: "arm64",
-  22: "arc",
+  13: "nios",
+  14: "microblaze",
+  15: "nios2",
+  16: "blackfin",
+  17: "avr32",
+  18: "st200",
+  19: "sandbox",
+  20: "nds32",
+  21: "openrisc",
+  22: "arm64",
+  23: "arc",
+  24: "x86_64",
+  25: "xtensa",
+  26: "riscv",
 };
 
 const OS_NAMES: Readonly<Record<number, string>> = {
@@ -78,15 +84,29 @@ const OS_NAMES: Readonly<Record<number, string>> = {
   4: "4_4bsd",
   5: "linux",
   6: "svr4",
-  7: "esx",
+  7: "esix",
   8: "solaris",
   9: "irix",
   10: "sco",
-  11: "beos",
-  12: "qnx",
-  13: "vxworks",
-  14: "lynxos",
-  15: "windows",
+  11: "dell",
+  12: "ncr",
+  13: "lynxos",
+  14: "vxworks",
+  15: "psos",
+  16: "qnx",
+  17: "u-boot",
+  18: "rtems",
+  19: "artos",
+  20: "unity",
+  21: "integrity",
+  22: "ose",
+  23: "plan9",
+  24: "openrtos",
+  25: "arm-trusted-firmware",
+  26: "tee",
+  27: "opensbi",
+  28: "efi",
+  29: "elf",
 };
 
 const TYPE_NAMES: Readonly<Record<number, string>> = {
@@ -116,6 +136,15 @@ const named = (
   value: number,
 ): string => table[value] ?? "unknown";
 
+export type UImageParseError =
+  | { readonly _tag: "UImageFormatFailure"; readonly message: string }
+  | { readonly _tag: "UImageCapacityFailure"; readonly message: string };
+const malformed = (message: string): UImageParseError => ({
+  _tag: "UImageFormatFailure",
+  message,
+});
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
 /** True when the first four bytes are the U-Boot legacy magic. */
 export const hasUImageMagic = (prefix: Buffer): boolean =>
   prefix.length >= 4 && prefix.readUInt32BE(0) === UIMAGE_MAGIC;
@@ -127,25 +156,40 @@ export const hasUImageMagic = (prefix: Buffer): boolean =>
  */
 export const parseUImageHeaderFields = (
   header: Buffer,
-): Result<UImageHeaderFields, string> => {
+): Result<UImageHeaderFields, UImageParseError> => {
   if (header.length < UIMAGE_HEADER_SIZE)
     return err(
-      `uImage header is truncated: ${header.length} bytes, expected ${UIMAGE_HEADER_SIZE}`,
+      malformed(
+        `uImage header is truncated: ${header.length} bytes, expected ${UIMAGE_HEADER_SIZE}`,
+      ),
     );
   if (header.readUInt32BE(0) !== UIMAGE_MAGIC)
     return err(
-      `uImage magic mismatch: expected 0x${UIMAGE_MAGIC.toString(16)}, found 0x${header.readUInt32BE(0).toString(16)}`,
+      malformed(
+        `uImage magic mismatch: expected 0x${UIMAGE_MAGIC.toString(16)}, found 0x${header.readUInt32BE(0).toString(16)}`,
+      ),
     );
   const declaredHeaderCrc = header.readUInt32BE(4);
   const zeroed = Buffer.from(header.subarray(0, UIMAGE_HEADER_SIZE));
   zeroed.writeUInt32BE(0, 4);
-  if (crc32(zeroed) >>> 0 !== declaredHeaderCrc)
+  const computedHeaderCrc = crc32(zeroed);
+  if (computedHeaderCrc !== declaredHeaderCrc)
     return err(
-      `uImage header CRC32 mismatch: declared 0x${declaredHeaderCrc.toString(16)}, computed 0x${(crc32(zeroed) >>> 0).toString(16)}`,
+      malformed(
+        `uImage header CRC32 mismatch: declared 0x${declaredHeaderCrc.toString(16)}, computed 0x${computedHeaderCrc.toString(16)}`,
+      ),
     );
   const timestamp = header.readUInt32BE(8);
   const nameBytes = header.subarray(32, 32 + UIMAGE_NAME_LENGTH);
   const nul = nameBytes.indexOf(0);
+  let name: string | null;
+  try {
+    name = UTF8.decode(
+      nameBytes.subarray(0, nul === -1 ? UIMAGE_NAME_LENGTH : nul),
+    );
+  } catch {
+    name = null;
+  }
   const os = header[28] ?? 0;
   const arch = header[29] ?? 0;
   const type = header[30] ?? 0;
@@ -167,48 +211,16 @@ export const parseUImageHeaderFields = (
     typeName: named(TYPE_NAMES, type),
     compression,
     compressionName: named(COMPRESSION_NAMES, compression),
-    name: nameBytes
-      .subarray(0, nul === -1 ? UIMAGE_NAME_LENGTH : nul)
-      .toString("utf8"),
+    name,
+    nameBytesHex: nameBytes.toString("hex"),
   });
 };
-
-/** Incremental IEEE CRC32, matching `node:zlib`'s one-shot `crc32`. */
-export const createCrc32 = (): {
-  update(chunk: Buffer): void;
-  digest(): number;
-} => {
-  let crc = 0xff_ff_ff_ff;
-  return {
-    update(chunk: Buffer): void {
-      for (const byte of chunk) {
-        // Index is always 0..255 and the table has 256 entries; the
-        // fallback only satisfies noUncheckedIndexedAccess.
-        const tableValue = CRC_TABLE[(crc ^ byte) & 0xff] ?? 0;
-        crc = tableValue ^ (crc >>> 8);
-      }
-    },
-    digest(): number {
-      return (crc ^ 0xff_ff_ff_ff) >>> 0;
-    },
-  };
-};
-
-const CRC_TABLE: Uint32Array = (() => {
-  const table: number[] = [];
-  for (let value = 0; value < 256; value += 1) {
-    let crc = value;
-    for (let bit = 0; bit < 8; bit += 1)
-      crc = (crc & 1) !== 0 ? 0xed_b8_83_20 ^ (crc >>> 1) : crc >>> 1;
-    table.push(crc >>> 0);
-  }
-  return new Uint32Array(table);
-})();
 
 /**
  * Multi-file payload layout (U-Boot `image_multi_getimg`): the payload
  * begins with a table of big-endian sub-image sizes terminated by a zero
- * entry; the sub-image bytes follow the table in order. `prefix` must hold
+ * entry; the sub-image bytes follow the table in order, with nonfinal components
+ * padded to a four-byte boundary. `prefix` must hold
  * the table's opening bytes (up to UIMAGE_MULTI_TABLE_WINDOW); the table
  * must terminate inside the payload and the sub-images must fit within
  * `payloadSize`. Trailing slack after the last sub-image is tolerated
@@ -217,32 +229,41 @@ const CRC_TABLE: Uint32Array = (() => {
 export const parseMultiImageTable = (
   prefix: Buffer,
   payloadSize: number,
-): Result<readonly UImageSubImage[], string> => {
+): Result<readonly UImageSubImage[], UImageParseError> => {
+  if (!Number.isSafeInteger(payloadSize) || payloadSize < 0)
+    return err(
+      malformed("uImage payload size is not an exact nonnegative extent"),
+    );
   const sizes: number[] = [];
   let cursor = 0;
   for (;;) {
     if (cursor + 4 > prefix.length || cursor + 4 > payloadSize)
       return err(
-        "uImage multi-image size table has no zero terminator inside the payload",
+        malformed(
+          "uImage multi-image size table has no zero terminator inside the payload",
+        ),
       );
     const size = prefix.readUInt32BE(cursor);
     cursor += 4;
     if (size === 0) break;
     sizes.push(size);
     if (sizes.length > UIMAGE_MAX_SUB_IMAGES)
-      return err(
-        `uImage multi-image table declares more than ${UIMAGE_MAX_SUB_IMAGES} sub-images`,
-      );
+      return err({
+        _tag: "UImageCapacityFailure",
+        message: `uImage multi-image table declares more than ${UIMAGE_MAX_SUB_IMAGES} sub-images`,
+      });
   }
   const subImages: UImageSubImage[] = [];
   let offset = UIMAGE_HEADER_SIZE + cursor;
   for (const [index, size] of sizes.entries()) {
     if (offset + size > UIMAGE_HEADER_SIZE + payloadSize)
       return err(
-        `uImage multi-image sub-image ${index} of ${size} bytes overruns the ${payloadSize}-byte payload`,
+        malformed(
+          `uImage multi-image sub-image ${index} of ${size} bytes overruns the ${payloadSize}-byte payload`,
+        ),
       );
     subImages.push({ index, byteOffset: offset, declaredSize: size });
-    offset += size;
+    offset += index + 1 < sizes.length ? Math.ceil(size / 4) * 4 : size;
   }
   return ok(subImages);
 };

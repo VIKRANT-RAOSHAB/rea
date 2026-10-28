@@ -5,10 +5,7 @@ import { expect } from "vitest";
 
 import { cliTest } from "../support/cli/cliFixture.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
-import {
-  buildMultiPayload,
-  buildUImage,
-} from "../../src/artifacts/uimage/UImage.fixture.js";
+import { buildMultiPayload, buildUImage } from "../fixtures/uimage.js";
 import { parseEvidence } from "../../src/domain/evidence.js";
 import { artifactInspectionResultSchema } from "../../src/domain/artifactInspection.js";
 import {
@@ -26,8 +23,8 @@ cliTest(
     await writeFile(
       source,
       buildUImage({
-        arch: 2,
-        os: 5,
+        arch: 22,
+        os: 14,
         type: 4,
         compression: 0,
         loadAddress: 0x8000,
@@ -53,8 +50,10 @@ cliTest(
         ?.format_metadata,
     ).toMatchObject({
       kind: "uimage",
-      arch_name: "arm",
-      os_name: "linux",
+      arch: 22,
+      arch_name: "arm64",
+      os: 14,
+      os_name: "vxworks",
       type_name: "multi",
       compression_name: "none",
       name: "multi-test",

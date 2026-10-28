@@ -259,6 +259,7 @@ export type BinaryTarget =
           | "asar"
           | "godot-pck"
           | "unityfs"
+          | "uimage"
           | "dmg"
           | "pkg"
           | "intel-hex"
@@ -267,7 +268,7 @@ export type BinaryTarget =
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {
         readonly kind: "artifact";
-        readonly format: "plist" | "javascript" | "source-map" | "uimage";
+        readonly format: "plist" | "javascript" | "source-map";
       });
 
 /** Whether an executable target contains a thin or universal Mach-O image. */

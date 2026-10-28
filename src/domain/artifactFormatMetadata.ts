@@ -224,7 +224,7 @@ export const uImageMetadataSchema = z.strictObject({
   magic: z.literal(0x27051956),
   timestamp: uint32,
   timestamp_iso: z.string(),
-  payload_size: offset,
+  payload_size: uint32,
   load_address: uint32,
   entry_point: uint32,
   header_crc32: uint32,
@@ -238,8 +238,9 @@ export const uImageMetadataSchema = z.strictObject({
   type_name: z.string(),
   compression: z.number().int().min(0).max(255),
   compression_name: z.string(),
-  name: z.string(),
-  sub_image_count: z.number().int().min(0),
+  name: z.string().nullable(),
+  name_bytes_hex: z.string().regex(/^[0-9a-f]{64}$/u),
+  sub_image_count: uint32,
 });
 export type UImageMetadata = z.infer<typeof uImageMetadataSchema>;
 

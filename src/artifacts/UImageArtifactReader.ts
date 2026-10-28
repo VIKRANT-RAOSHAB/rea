@@ -1,8 +1,12 @@
 import { Readable, Transform, pipeline } from "node:stream";
-import type { FileHandle } from "node:fs/promises";
+import { crc32 } from "node:zlib";
+import { readArtifactFileBytes } from "./ArtifactFileRange.js";
 import { setImmediate } from "node:timers/promises";
 
-import type { UImageMetadata } from "../domain/artifactFormatMetadata.js";
+import type {
+  UImageEntryMetadata,
+  UImageMetadata,
+} from "../domain/artifactFormatMetadata.js";
 import { ArtifactFileSource } from "./ArtifactFileSource.js";
 import { assertArtifactReadActive } from "./ArtifactFileOperation.js";
 import {
@@ -17,23 +21,29 @@ import { ArtifactResourceScope } from "./ArtifactResourceScope.js";
 import { readFileHandleChunks } from "../filesystem/readFileHandleChunks.js";
 import type { StableRegularFileDescriptor } from "../filesystem/RegularFile.js";
 import {
-  createCrc32,
   parseMultiImageTable,
   parseUImageHeaderFields,
   UIMAGE_HEADER_SIZE,
   UIMAGE_MAGIC,
   UIMAGE_MULTI_TABLE_WINDOW,
   type UImageHeaderFields,
-} from "./uimage/UImageHeader.js";
+  type UImageParseError,
+  type UImageSubImage,
+} from "../domain/uimageFormat.js";
 
 const PAYLOAD_PATH = "payload.bin";
 const READ_CHUNK_BYTES = 64 * 1024;
+type UImageEntry = ArtifactEntry & {
+  readonly byteOffset: number;
+  readonly declaredSize: number;
+  readonly formatMetadata: UImageEntryMetadata;
+};
 
 /** Read a U-Boot legacy uImage without running, decompressing, or altering it. */
 export class UImageArtifactReader implements ArtifactReader {
   readonly format = "uimage" as const;
   readonly #scope = new ArtifactResourceScope();
-  readonly #entries = new Map<string, ArtifactEntry>();
+  readonly #entries = new Map<string, UImageEntry>();
   readonly #streams = new Set<Readable>();
   readonly #source: ArtifactFileSource;
   #prepared: Promise<void> | undefined;
@@ -68,6 +78,7 @@ export class UImageArtifactReader implements ArtifactReader {
       await this.#prepared;
       await this.#source.read(signal);
     });
+    this.#assertOpen(signal);
     options?.onCoverage?.({
       status: "complete",
       limitations:
@@ -84,6 +95,7 @@ export class UImageArtifactReader implements ArtifactReader {
       this.#assertOpen(signal);
       yield copyArtifactEntry(entry);
     }
+    this.#assertOpen(signal);
   }
 
   async open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {
@@ -97,8 +109,6 @@ export class UImageArtifactReader implements ArtifactReader {
         );
       const { handle } = await this.#source.read(signal);
       this.#assertOpen(signal);
-      if (stored.byteOffset === null || stored.declaredSize === null)
-        throw formatFailure("member has no physical byte range");
       const source =
         stored.declaredSize === 0
           ? Readable.from([])
@@ -162,74 +172,68 @@ export class UImageArtifactReader implements ArtifactReader {
 
   async #prepare(signal?: AbortSignal): Promise<void> {
     const { handle, initial } = await this.#source.read(signal);
-    const headerBytes = await readRange(handle, 0, UIMAGE_HEADER_SIZE, signal);
+    const headerBytes = await readArtifactFileBytes(
+      handle,
+      0,
+      Math.min(initial.size, UIMAGE_HEADER_SIZE),
+      initial.size,
+      signal,
+    );
     const fields = parseUImageHeaderFields(headerBytes);
-    if (!fields.ok) throw formatFailure(fields.error);
+    if (!fields.ok) throw parseFailure(fields.error);
     const header = fields.value;
     if (initial.size < UIMAGE_HEADER_SIZE + header.payloadSize)
       throw formatFailure(
         `uImage payload is truncated: header declares ${header.payloadSize} payload bytes but only ${initial.size - UIMAGE_HEADER_SIZE} follow the header`,
       );
-    // Stream the payload once: verify the data CRC without buffering it,
-    // and keep the opening bytes for a multi-image size table.
-    const crc = createCrc32();
-    const tableWindow = Math.min(header.payloadSize, UIMAGE_MULTI_TABLE_WINDOW);
-    let tablePrefix = Buffer.alloc(0);
+    // Admit the bounded size table first, then include those same bytes in the
+    // native CRC stream. No payload byte needs to be read twice for verification.
+    let dataCrc32 = 0;
     let read = 0;
+    let subImages: readonly UImageSubImage[] = [];
+    if (header.type === 4) {
+      const tablePrefix = await readArtifactFileBytes(
+        handle,
+        UIMAGE_HEADER_SIZE,
+        Math.min(header.payloadSize, UIMAGE_MULTI_TABLE_WINDOW),
+        initial.size,
+        signal,
+      );
+      const parsed = parseMultiImageTable(tablePrefix, header.payloadSize);
+      if (!parsed.ok) throw parseFailure(parsed.error);
+      subImages = parsed.value;
+      dataCrc32 = crc32(tablePrefix);
+      read = tablePrefix.length;
+    }
     while (read < header.payloadSize) {
       this.#assertOpen(signal);
-      const chunk = await readRange(
+      const chunk = await readArtifactFileBytes(
         handle,
         UIMAGE_HEADER_SIZE + read,
         Math.min(READ_CHUNK_BYTES, header.payloadSize - read),
+        initial.size,
         signal,
       );
-      if (chunk.length === 0)
-        throw formatFailure("uImage payload ended before its declared size");
-      crc.update(chunk);
-      if (tablePrefix.length < tableWindow)
-        tablePrefix = Buffer.concat([
-          tablePrefix,
-          chunk.subarray(0, tableWindow - tablePrefix.length),
-        ]);
+      dataCrc32 = crc32(chunk, dataCrc32);
       read += chunk.length;
     }
-    if (crc.digest() !== header.dataCrc32)
+    if (dataCrc32 !== header.dataCrc32)
       throw formatFailure(
-        `uImage data CRC32 mismatch: declared 0x${header.dataCrc32.toString(16)}, computed 0x${crc.digest().toString(16)}`,
+        `uImage data CRC32 mismatch: declared 0x${header.dataCrc32.toString(16)}, computed 0x${dataCrc32.toString(16)}`,
       );
-    let subImages: readonly {
-      index: number;
-      byteOffset: number;
-      declaredSize: number;
-    }[] = [];
-    if (header.typeName === "multi") {
-      const parsed = parseMultiImageTable(tablePrefix, header.payloadSize);
-      if (!parsed.ok) throw formatFailure(parsed.error);
-      subImages = parsed.value;
-    }
     this.#header = toMetadata(header, subImages.length);
-    this.#entries.set(
-      "uimage:payload",
-      entryFor(PAYLOAD_PATH, "uimage:payload", "payload", 0, {
-        byteOffset: UIMAGE_HEADER_SIZE,
-        declaredSize: header.payloadSize,
-      }),
-    );
-    for (const sub of subImages)
-      this.#entries.set(
-        `uimage:image-${sub.index}`,
-        entryFor(
-          `image-${sub.index}.bin`,
-          `uimage:image-${sub.index}`,
-          "sub-image",
-          sub.index,
-          { byteOffset: sub.byteOffset, declaredSize: sub.declaredSize },
-        ),
-      );
+    const payload = entryFor("payload", 0, {
+      byteOffset: UIMAGE_HEADER_SIZE,
+      declaredSize: header.payloadSize,
+    });
+    this.#entries.set(payload.adapterKey, payload);
+    for (const sub of subImages) {
+      const entry = entryFor("sub-image", sub.index, sub);
+      this.#entries.set(entry.adapterKey, entry);
+    }
   }
 
-  #memberStream(entry: ArtifactEntry, signal?: AbortSignal): Transform {
+  #memberStream(entry: UImageEntry, signal?: AbortSignal): Transform {
     let bytes = 0;
     const check = async (): Promise<void> => {
       if (bytes !== entry.declaredSize)
@@ -256,51 +260,49 @@ export class UImageArtifactReader implements ArtifactReader {
   }
 }
 
-const formatFailure = (detail: string): ArtifactReaderFailure =>
-  new ArtifactReaderFailure("format", `uImage is malformed: ${detail}`);
+const formatFailure = (
+  detail: string,
+  options?: ErrorOptions,
+): ArtifactReaderFailure =>
+  new ArtifactReaderFailure(
+    "format",
+    `uImage is malformed: ${detail}`,
+    options,
+  );
+
+const parseFailure = (failure: UImageParseError): ArtifactReaderFailure =>
+  failure._tag === "UImageCapacityFailure"
+    ? new ArtifactReaderFailure("limit", failure.message, {
+        boundary: "capacity",
+        cause: failure,
+      })
+    : formatFailure(failure.message, { cause: failure });
 
 const entryFor = (
-  path: string,
-  adapterKey: string,
   role: "payload" | "sub-image",
   index: number,
-  range: { byteOffset: number; declaredSize: number },
-): ArtifactEntry => ({
-  path,
-  kind: "file",
-  declaredSize: range.declaredSize,
-  compressedSize: null,
-  executable: false,
-  encrypted: false,
-  byteOffset: range.byteOffset,
-  declaredIntegrity: null,
-  unpacked: false,
-  limitations: [],
-  adapterKey,
-  formatMetadata: { kind: "uimage-entry", role, index },
-  sourcePath: path,
-});
-
-const readRange = async (
-  handle: FileHandle,
-  position: number,
-  length: number,
-  signal?: AbortSignal,
-): Promise<Buffer> => {
-  const bytes = Buffer.alloc(length);
-  let read = 0;
-  while (read < length) {
-    assertArtifactReadActive(signal);
-    const observed = await handle.read(
-      bytes,
-      read,
-      length - read,
-      position + read,
-    );
-    if (observed.bytesRead === 0) break;
-    read += observed.bytesRead;
-  }
-  return bytes.subarray(0, read);
+  range: Pick<UImageSubImage, "byteOffset" | "declaredSize">,
+): UImageEntry => {
+  const payload = role === "payload";
+  const path = payload ? PAYLOAD_PATH : `image-${String(index)}.bin`;
+  const adapterKey = payload
+    ? "uimage:payload"
+    : `uimage:image-${String(index)}`;
+  return {
+    path,
+    kind: "file",
+    declaredSize: range.declaredSize,
+    compressedSize: null,
+    executable: false,
+    encrypted: false,
+    byteOffset: range.byteOffset,
+    declaredIntegrity: null,
+    unpacked: false,
+    limitations: [],
+    adapterKey,
+    formatMetadata: { kind: "uimage-entry", role, index },
+    sourcePath: path,
+  };
 };
 
 const toMetadata = (
@@ -326,5 +328,6 @@ const toMetadata = (
   compression: facts.compression,
   compression_name: facts.compressionName,
   name: facts.name,
+  name_bytes_hex: facts.nameBytesHex,
   sub_image_count: subImageCount,
 });

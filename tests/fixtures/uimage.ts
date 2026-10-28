@@ -4,7 +4,7 @@ import {
   UIMAGE_HEADER_SIZE,
   UIMAGE_MAGIC,
   UIMAGE_NAME_LENGTH,
-} from "./UImageHeader.js";
+} from "../../src/domain/uimageFormat.js";
 
 export interface UImageFixtureOptions {
   readonly arch?: number;
@@ -57,5 +57,15 @@ export const buildMultiPayload = (parts: readonly Buffer[]): Buffer => {
   parts.forEach((part, index) => {
     table.writeUInt32BE(part.length, index * 4);
   });
-  return Buffer.concat([table, ...parts]);
+  const stored: Buffer[] = [table];
+  parts.forEach((part, index) => {
+    if (part.length === 0)
+      throw new Error(
+        "A zero size terminates the uImage table; it cannot describe a component",
+      );
+    stored.push(part);
+    if (index + 1 < parts.length)
+      stored.push(Buffer.alloc((4 - (part.length % 4)) % 4));
+  });
+  return Buffer.concat(stored);
 };

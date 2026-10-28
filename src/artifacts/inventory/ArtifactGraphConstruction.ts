@@ -1,5 +1,5 @@
 import { hasGodotPckHeader } from "../../domain/godotPckFormat.js";
-import { hasUImageMagic } from "../uimage/UImageHeader.js";
+import { hasUImageMagic } from "../../domain/uimageFormat.js";
 import { hasUnityFsHeader } from "../../domain/unityfsFormat.js";
 import { detectHexRecordEncoding } from "../../domain/firmware/hexRecords.js";
 import type { ArtifactClassificationEvidence } from "../ArtifactClassificationProbe.js";

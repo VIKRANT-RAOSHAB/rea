@@ -1,4 +1,3 @@
-import { crc32 } from "node:zlib";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
@@ -7,14 +6,13 @@ import { expect, it } from "vitest";
 
 import { ArtifactReaderFailure } from "./ArtifactReader.js";
 import { UImageArtifactReader } from "./UImageArtifactReader.js";
-import { buildMultiPayload, buildUImage } from "./uimage/UImage.fixture.js";
+import { buildMultiPayload, buildUImage } from "../../tests/fixtures/uimage.js";
 import {
-  createCrc32,
   parseMultiImageTable,
   parseUImageHeaderFields,
   UIMAGE_HEADER_SIZE,
   UIMAGE_MAGIC,
-} from "./uimage/UImageHeader.js";
+} from "../domain/uimageFormat.js";
 import { classifyArtifactBytesAtPath } from "../../tests/fixtures/artifactClassification.js";
 import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
 import { scanCanonicalArtifactInventory } from "../../tests/fixtures/artifactInventory.js";
@@ -96,17 +94,8 @@ it("rejects a bad magic and a bad header CRC", () => {
     badCrc.subarray(0, UIMAGE_HEADER_SIZE),
   );
   expect(parsed.ok).toBe(false);
-  if (!parsed.ok) expect(parsed.error).toContain("header CRC32 mismatch");
-});
-
-it("matches node:zlib crc32 incrementally", () => {
-  const data = Buffer.from(
-    "the quick brown fox jumps over the lazy dog".repeat(64),
-  );
-  const incremental = createCrc32();
-  for (let offset = 0; offset < data.length; offset += 7)
-    incremental.update(data.subarray(offset, offset + 7));
-  expect(incremental.digest()).toBe(crc32(data) >>> 0);
+  if (!parsed.ok)
+    expect(parsed.error.message).toContain("header CRC32 mismatch");
 });
 
 it("splits a multi-image size table and rejects malformed tables", () => {
@@ -123,7 +112,7 @@ it("splits a multi-image size table and rejects malformed tables", () => {
     },
     {
       index: 1,
-      byteOffset: UIMAGE_HEADER_SIZE + 15,
+      byteOffset: UIMAGE_HEADER_SIZE + 16,
       declaredSize: 5,
     },
   ]);
@@ -157,7 +146,7 @@ it("inventories a kernel image with its stored payload", async () => {
   const path = await writeCarrier(
     "uimage-kernel",
     buildUImage({
-      arch: 21,
+      arch: 22,
       os: 5,
       type: 2,
       compression: 0,
@@ -176,7 +165,7 @@ it("inventories a kernel image with its stored payload", async () => {
   expect(root?.format_metadata).toMatchObject({
     kind: "uimage",
     magic: UIMAGE_MAGIC,
-    arch: 21,
+    arch: 22,
     arch_name: "arm64",
     os_name: "linux",
     type_name: "kernel",
