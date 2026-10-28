@@ -87,8 +87,12 @@ export const startMcpTransport = async (
         androidProviders.delete(provider);
       }),
     );
-    for (const result of results)
-      if (result.status === "rejected") throw result.reason;
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, "Android provider cleanup failed");
   };
   // Optional providers are shared by every server instance the SDK creates,
   // including a discarded discovery probe, so only process shutdown closes them.
@@ -170,7 +174,10 @@ export const startMcpTransport = async (
     if (!cancelled) {
       const startFailure =
         cause instanceof StreamableHttpListenError
-          ? MCP_HTTP_LISTEN_FAILED
+          ? cause.classification.ok &&
+            cause.classification.value.kind === "host_allowlist"
+            ? cause.remediationAction
+            : MCP_HTTP_LISTEN_FAILED
           : MCP_CONNECTION_START_FAILED;
       serverLogger.error(
         {

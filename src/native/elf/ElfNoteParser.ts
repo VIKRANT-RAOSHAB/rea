@@ -1,5 +1,10 @@
+import {
+  observeElfStringTableEntry,
+  elfStringTableText,
+} from "../../domain/elfStringTable.js";
 import { readElfSectionHeader } from "../../domain/elfSectionHeader.js";
 import { readElfProgramHeader } from "../../domain/elfProgramHeader.js";
+import { validateElfSectionTablePresence } from "../../domain/elfDeclaredRanges.js";
 import { readElfRawTableDeclarations } from "../../domain/elfRawTableDeclarations.js";
 import { createHash } from "node:crypto";
 import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
@@ -124,28 +129,24 @@ class ElfReader {
     offset: number,
     text: TextBudget,
   ): { name: string | null; limitation: string | null } {
-    if (offset < 0 || offset >= table.length)
+    const observed = observeElfStringTableEntry(
+      table,
+      offset,
+      text.limit - text.used + 1,
+    );
+    if (observed.state === "outside")
       return {
         name: null,
         limitation:
           "ELF section names are incomplete because a name offset is outside its string table.",
       };
-    const affordable = text.limit - text.used;
-    const available = table.length - offset;
-    const scanned = Math.min(available, affordable + 1);
-    const end = table.subarray(offset, offset + scanned).indexOf(0);
-    if (end < 0) {
-      chargeText(text, scanned);
-      return {
-        name: null,
-        limitation:
-          "ELF section names are incomplete because a name is not NUL-terminated.",
-      };
-    }
-    chargeText(text, end);
+    chargeText(text, observed.contentBytes);
     return {
-      name: table.subarray(offset, offset + end).toString("latin1"),
-      limitation: null,
+      name: elfStringTableText(observed),
+      limitation:
+        observed.state === "truncated"
+          ? "ELF section names are incomplete because a name is not NUL-terminated."
+          : null,
     };
   }
 }
@@ -308,6 +309,8 @@ export const parseElfNotes = (
     sections.offset > BigInt(Number.MAX_SAFE_INTEGER)
   )
     return fail("ELF offset or size exceeds a safe integer.");
+  const presence = validateElfSectionTablePresence(raw.value);
+  if (!presence.ok) return fail(presence.error);
   const phoff = Number(programs.offset);
   const shoff = Number(sections.offset);
   const phentsize = programs.width;

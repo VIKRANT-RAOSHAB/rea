@@ -1,7 +1,8 @@
+import type { GhidraProjectSelection } from "./ghidraExistingProject.js";
 import type { McpToolFamilies } from "./mcpToolFamilies.js";
 import type { LogLevel } from "./processStart.js";
 import type { ReferenceSourcePolicy } from "../domain/referenceSourcePolicy.js";
-import type { AnalysisProviderSelector } from "../contracts/providerSelection.js";
+import type { AnalysisProviderSelector } from "../domain/providerSelection.js";
 
 import type { GhidraLanguageOverride } from "./ghidraLanguageOverride.js";
 import type { McpInputSchemaProfile } from "./mcpInputSchemaProfile.js";
@@ -25,6 +26,7 @@ export interface AppConfig {
   readonly ghidraLanguageOverride?: GhidraLanguageOverride;
   readonly ghidraDisabledAnalyzers?: readonly string[];
   readonly ghidraSeedFile?: string;
+  readonly ghidraExistingProject?: GhidraProjectSelection;
   readonly ghidraNativeAotJar?: string;
   readonly ilspyCmdPath: string | undefined;
   readonly hopperLauncherPath: string;

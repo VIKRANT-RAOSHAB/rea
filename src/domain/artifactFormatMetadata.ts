@@ -30,6 +30,39 @@ export const godotPckEntryMetadataSchema = z.strictObject({
   md5_status: z.enum(["declared", "all-zero"]),
 });
 
+/** Parsed source fields owned by the UnityFS adapter, independent of member bytes. */
+export const unityFsMetadataSchema = z.strictObject({
+  kind: z.literal("unityfs"),
+  signature: z.string(),
+  format_version: uint32,
+  player_version: z.string(),
+  engine_version: z.string(),
+  declared_size: offset,
+  flags: uint32,
+  blocks_info_compressed_size: uint32,
+  blocks_info_uncompressed_size: uint32,
+  blocks_info_at_end: z.boolean(),
+  data_start: offset.nullable(),
+  block_count: uint32.nullable(),
+  /** The 16-byte producer hash of the uncompressed block stream, as declared. */
+  data_hash: z.string().nullable(),
+  directory_status: z.enum([
+    "available",
+    "encrypted",
+    "unsupported-compression",
+    "unsupported-layout",
+  ]),
+});
+export type UnityFsMetadata = z.infer<typeof unityFsMetadataSchema>;
+
+export const unityFsEntryMetadataSchema = z.strictObject({
+  kind: z.literal("unityfs-entry"),
+  index: uint32,
+  source_path: z.string(),
+  declared_offset: offset,
+  flags: uint32,
+});
+
 /** Source cookie fields and derived directory counts without Python execution. */
 export const pyInstallerMetadataSchema = z.strictObject({
   kind: z.literal("pyinstaller"),
@@ -122,6 +155,56 @@ export const nodeSeaEntryMetadataSchema = z.strictObject({
   index: uint32,
 });
 
+/**
+ * Intel HEX or Motorola S-record facts derived from every record. Start
+ * addresses are declared values, not proven entry points.
+ */
+export const hexRecordsMetadataSchema = z.strictObject({
+  kind: z.literal("hex-records"),
+  encoding: z.enum(["intel-hex", "srec"]),
+  variant: z
+    .enum(["I8HEX", "I16HEX", "I32HEX", "S19", "S28", "S37", "mixed"])
+    .nullable(),
+  line_count: offset,
+  record_count: offset,
+  data_record_count: offset,
+  data_bytes: offset,
+  duplicate_bytes: offset,
+  region_count: offset,
+  lowest_address: uint32.nullable(),
+  highest_address: uint32.nullable(),
+  termination: z.enum(["present", "absent"]),
+  start_address: uint32.nullable(),
+  start_address_record: z.enum(["05", "S7", "S8", "S9"]).nullable(),
+  start_segment_cs: uint32.nullable(),
+  start_segment_ip: uint32.nullable(),
+  header_hex: z
+    .string()
+    .regex(/^(?:[0-9a-f]{2}){0,252}$/u)
+    .nullable(),
+  header_text: z.string().nullable(),
+  declared_data_record_count: uint32.nullable(),
+});
+export type HexRecordsMetadata = z.infer<typeof hexRecordsMetadataSchema>;
+
+/** One address-contiguous region; lines span its contributing data records. */
+export const hexRecordRegionMetadataSchema = z.strictObject({
+  kind: z.literal("hex-record-region"),
+  start_address: uint32,
+  end_address: uint32,
+  length: offset,
+  record_count: offset,
+  first_line: offset,
+  last_line: offset,
+});
+export type HexRecordRegionMetadata = z.infer<
+  typeof hexRecordRegionMetadataSchema
+>;
+/** Runtime member identity, independent of blob layout and directory order. */
+export const nodeSeaEntryDeclaration = (
+  metadata: z.infer<typeof nodeSeaEntryMetadataSchema>,
+) => ({ role: metadata.role, source_path: metadata.source_path });
+
 /** Declaration identity that is stable across archive layout changes. */
 export const pyInstallerEntryDeclaration = (
   metadata: PyInstallerEntryMetadata,
@@ -171,10 +254,14 @@ export type UImageEntryMetadata = z.infer<typeof uImageEntryMetadataSchema>;
 export const artifactFormatMetadataSchema = z.discriminatedUnion("kind", [
   godotPckMetadataSchema,
   godotPckEntryMetadataSchema,
+  unityFsMetadataSchema,
+  unityFsEntryMetadataSchema,
   pyInstallerMetadataSchema,
   pyInstallerEntryMetadataSchema,
   nodeSeaMetadataSchema,
   nodeSeaEntryMetadataSchema,
+  hexRecordsMetadataSchema,
+  hexRecordRegionMetadataSchema,
   uImageMetadataSchema,
   uImageEntryMetadataSchema,
 ]);

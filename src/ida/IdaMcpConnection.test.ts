@@ -646,6 +646,15 @@ it("keeps a real SDK physical failure when abort arrives during its outer unwind
   }
 });
 
+it.each(["1e400", '{"observed":1e400}'])(
+  "rejects IDA JSON text outside the JSON value contract: %s",
+  (text) => {
+    expect(() =>
+      decodeIdaToolResult({ content: [{ type: "text", text }] }),
+    ).toThrow("JSON numbers must be finite");
+  },
+);
+
 it("preserves observed own structured members before deciding whether to unwrap a result", () => {
   const structured: unknown = JSON.parse(
     '{"__proto__":{"observed":true},"result":"field","nested":[{"__proto__":"nested fact"}]}',
@@ -694,4 +703,60 @@ it("keeps error, truncation and native-text precedence ahead of structured JSON 
       "native",
     ),
   ).toEqual({ complete: true });
+});
+
+it("requires a valid content array even when IDA supplies structured evidence", () => {
+  for (const content of [
+    undefined,
+    null,
+    {},
+    [null],
+    [{ type: "text", text: 42 }],
+  ])
+    expect(() =>
+      decodeIdaToolResult({ content, structuredContent: { observed: true } }),
+    ).toThrow();
+});
+
+it("selects structured IDA evidence ahead of text while admitting mixed content", () => {
+  const image = { type: "image", data: "AA==", mimeType: "image/png" };
+  expect(
+    decodeIdaToolResult({
+      content: [image, { type: "text", text: "fallback" }],
+      structuredContent: { observed: true },
+    }),
+  ).toEqual({ observed: true });
+  expect(
+    decodeIdaToolResult({
+      content: [image, { type: "text", text: "fallback" }],
+    }),
+  ).toBe("fallback");
+  for (const structuredContent of [null, [], "invalid", { observed: Infinity }])
+    expect(() =>
+      decodeIdaToolResult({
+        content: [{ type: "text", text: "fallback" }],
+        structuredContent,
+      }),
+    ).toThrow();
+  expect(() => decodeIdaToolResult({ content: [image] })).toThrow(
+    "empty observation",
+  );
+  expect(() =>
+    decodeIdaToolResult({
+      content: [
+        { type: "text", text: "first" },
+        { type: "text", text: "second" },
+      ],
+    }),
+  ).toThrow("empty observation");
+});
+
+it("requires complete native IDA JSON text despite usable structured content", () => {
+  for (const content of [[], [{ type: "text", text: "plain text" }]])
+    expect(() =>
+      decodeIdaToolResult(
+        { content, structuredContent: { observed: true } },
+        "native",
+      ),
+    ).toThrow();
 });

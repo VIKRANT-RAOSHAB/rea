@@ -275,7 +275,7 @@ Additional lanes are explicit, so the base lane stays small:
 REA_FIRMWARE_VERIFY_EXT4=1 npm run fixtures:firmware
 REA_FIRMWARE_VERIFY_EXT4=1 npm run verify:firmware
 
-# Existing Ghidra 12.1.x and its declared JDK required.
+# Existing Ghidra 12.x (>=12.1) and its declared JDK required.
 REA_FIRMWARE_VERIFY_GHIDRA=1 npm run verify:firmware
 ```
 
@@ -292,6 +292,14 @@ Use [`inspect_devicetree`](devicetree.md) / `rea inspect-devicetree` on an
 extracted DTB for its node/property tree, reservations, hardware summary and
 selected phandle relationships. FDT v16/v17 inspection is portable and requires
 no external tool or disassembler.
+
+## Inspect Intel HEX and S-record images
+
+Use `inspect-artifact` / `inspect_artifact` on an Intel HEX or Motorola S-record
+file for its address regions, declared start address and record facts, then
+`extract-artifact` / `extract_artifact` for one raw file per region. Decoding is
+portable and requires no external tool. See
+[Intel HEX and S-record images](hex-records.md).
 
 ## Inspect U-Boot legacy uImages
 

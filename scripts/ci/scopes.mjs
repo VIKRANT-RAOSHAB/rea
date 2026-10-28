@@ -1,3 +1,13 @@
+// These boundaries require native Windows launch verification even where
+// broad process ownership would otherwise suppress host fanout on the fast tier.
+export const WINDOWS_EXECUTABLE_SELECTION_INPUTS = [
+  "src/process/WindowsExecutable*.ts",
+  "src/adb/AdbConfiguration.ts",
+  "src/apktool/ApktoolConfiguration.ts",
+  "src/application/UpdateCommandRunner.ts",
+  "tests/boundary/process/windowsExecutableSelection.test.ts",
+];
+
 // Ownership of the native-host, real-provider and website verification lanes.
 // Shared build inputs are classified once in plan.mjs rather than repeated in
 // every workflow.
@@ -67,6 +77,7 @@ export const SCOPES = {
   ],
   // Apple artifact CLI/MCP lane on macOS, including its focused regressions.
   apple: [
+    "src/artifacts/NativeDmg*.ts",
     "src/native/Apple*",
     "src/native/NativeMacOS*",
     "src/native/NativeUi*",
@@ -74,6 +85,9 @@ export const SCOPES = {
     "bridge/native/**",
     "bridge/process/**",
     "scripts/verify/apple/**",
+    "tests/acceptance/artifactDmgAttachmentRecoveryCli.test.ts",
+    "tests/boundary/providers/native/nativeDmgArtifactReader.test.ts",
+    "tests/process-global/dmgCancellationReason.test.ts",
     "tests/boundary/filesystem/installScript.test.ts",
     "tests/boundary/filesystem/nibNativeHierarchy.test.ts",
     "tests/boundary/filesystem/interfaceBuilderBundle.test.ts",
@@ -97,6 +111,7 @@ export const SCOPES = {
   ],
   // Four-host installed-package matrix and the Windows curated lane.
   package: [
+    ...WINDOWS_EXECUTABLE_SELECTION_INPUTS,
     // Both host compilers must be exercised when their installation, options,
     // or entrypoints change; Linux's accelerated checker cannot stand in for Go.
     "scripts/run-typescript.*",
@@ -178,6 +193,7 @@ export const SCOPES = {
     "tests/boundary/providers/native/artifactProvider.extractionCompleteness.test.ts",
     "tests/boundary/filesystem/setupUnavailableProvider.test.ts",
     "tests/boundary/filesystem/windowsNpxRegistration.test.ts",
+    "tests/boundary/filesystem/claudeDesktopSkillUninstallWindows.test.ts",
     "tests/boundary/filesystem/clientConfigurationEnvironment.test.ts",
     "tests/boundary/filesystem/clientConfigurationLayeredEnvironment.test.ts",
     "tests/acceptance/setup/registrationRuntimeEnvironmentCli.test.ts",

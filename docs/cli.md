@@ -51,6 +51,15 @@ module page. See
 [JavaScript application workflows](javascript-application-workflows.md) for
 views, feature traces and comparisons that take the same saved Evidence.
 
+Add `--timings` to a command to write one JSON timing record to stderr. For
+example, `rea inspect-elf-notes program --json --timings > result.json` keeps
+stdout as a parseable result and writes
+`{"rea_timings":{"version":1,"command_ms":42}}` to stderr. `command_ms`
+measures CLI command dispatch and result delivery; it is not provider-only or
+analysis-only time. The flag is off by default, and the record omits stages
+that REA did not measure. Root version reporting does not dispatch a command
+and has no command timing record.
+
 ## JSON Lines record output
 
 Use `--format jsonl` to consume row-oriented results one record per line:
@@ -241,6 +250,17 @@ Formats 2, 3 and 4 retain header, directory and integrity facts. Compact deliver
 keeps complete Evidence in the requested bundle. See [Godot PCK](godot-pck.md)
 for embedded packs, batch queries and unknown encrypted coverage.
 
+Inspect a UnityFS AssetBundle without running Unity:
+
+```sh
+rea inspect-artifact content.bundle --detail summary --evidence_output evidence.json --json
+rea extract-artifact content.bundle --json
+```
+
+Format versions 6 through 8 retain header, block and directory facts with
+none/LZ4/LZ4HC block decompression. See [UnityFS](unityfs.md) for encryption
+and LZMA coverage boundaries.
+
 Inspect a Node.js SEA carrier without running it:
 
 ```sh
@@ -250,6 +270,16 @@ rea extract-artifact ./application --json
 
 See [Node.js SEA](node-sea.md) for supported layouts, script and asset paths,
 fuse observations, and the real-fixture verification lane.
+
+Inventory and extract Intel HEX or S-record regions:
+
+```sh
+rea inspect-artifact ./firmware.hex --json
+rea extract-artifact ./firmware.hex --json
+```
+
+See [Intel HEX and S-record images](hex-records.md) for recognition, region
+names, metadata and limits.
 
 Inspect local model declarations without loading weights:
 
@@ -443,7 +473,13 @@ The selected provider remains bound to the session until an explicit switch
 or close. Provider failures are returned with their original reason. For an
 `ambiguous` selection error, choose from `details.candidate_ids`; for
 `provider_unavailable`, follow `message`, `remediation.action`, and the original
-reasons in `details.rejections`. For Hopper, Ghidra, IDA, JADX, and Kuna, run
+reasons in `details.rejections`. Each rejection names its `origin`: `availability`
+entries describe local readiness failures, including missing configuration or an
+invalid existing registration; they do not establish target support. `target`
+entries record a refused kind, format, architecture, or role. An availability-only
+message describes the recorded rejections without claiming that every provider
+is unconfigured or that target support is known.
+For Hopper, Ghidra, IDA, JADX, and Kuna, run
 `rea doctor --provider ID --json` to diagnose the selected engine. Other adapters,
 such as `pwntools-elf`, report their configuration requirements directly and are
 not accepted by `doctor --provider`. See
@@ -484,6 +520,11 @@ Snapshot bindings that use a replaced record retain its updated display path.
 Dispatching a provider metadata write invalidates the active session's snapshot cache,
 even if its reply fails: the provider may already have applied the write.
 Close and reopen the target before importing or saving another snapshot.
+
+Saved snapshots include only cache entries whose subject identifies the selected
+target. Unbound observations and observations of child artifacts remain available
+in the open session and its Evidence bundle; they are excluded from the target's
+saved replay entries without changing their subjects.
 
 Snapshots retain eligible target-scoped question histories in full, including
 mutation Evidence recorded while another target was active. Observations and
@@ -539,6 +580,9 @@ rea evidence-export /absolute/path/to/evidence/bundle.json /absolute/path/to/evi
 rea compare /absolute/path/to/evidence/left.json /absolute/path/to/evidence/right.json
 rea compare left.json right.json --record_pairs '[{"left_evidence_id":"ev_<left-sha256>","right_evidence_id":"ev_<right-sha256>"}]' --json
 ```
+
+Migration: replace `rea compare-bundles` with `rea compare`; the former command
+has been removed. The MCP tool remains `compare_bundles`.
 
 `--record_pairs` supplies an explicit JSON array of observation pairs, matching
 MCP `compare_bundles.record_pairs`. Pair IDs must exist on their named sides and
@@ -738,8 +782,18 @@ rea mcp --http --port 8765
 ```
 
 `--host` and `--port` default to `MCP_HOST` and `MCP_PORT` from the environment,
-then to `127.0.0.1` and an ephemeral port. The bound URL is written to stderr as
-one JSON log line (`"msg":"MCP transport listening"`) whatever `REA_LOG_LEVEL`
+then to `127.0.0.1` and an ephemeral port. A bind outside loopback requires
+`MCP_ALLOWED_HOSTS` or `--allowed-hosts`, a comma-separated list of client host
+names or IP addresses without URLs or ports. For example:
+
+```sh
+rea mcp --http --host 0.0.0.0 --allowed-hosts 127.0.0.1,rea.lan
+```
+
+Requests with a different `Host` or browser `Origin` receive `403`; a missing
+`Origin` is accepted. The announced client URL uses the bound hostname when
+admitted, otherwise the first declared hostname, with the actual bound port.
+It is written to stderr as one JSON log line (`"msg":"MCP transport listening"`) whatever `REA_LOG_LEVEL`
 is set to; nothing is written to stdout. `rea mcp --http --help` lists the accepted options. The listener serves
 one client at a time: a session ends with the client's `DELETE`, and a client
 that connects while another session is open takes it over, so a client that
@@ -777,9 +831,18 @@ rea environment-serve manifest.json --evidence capture.json --port 8765
 ```
 
 `--host` and `--port` resolve like `rea mcp --http`: flags, then `MCP_HOST` and
-`MCP_PORT`, then `127.0.0.1` and an ephemeral port. `ENVIRONMENT_NAME` renames
+`MCP_PORT`, then `127.0.0.1` and an ephemeral port. A non-loopback bind requires
+`MCP_ALLOWED_HOSTS` with the same hostname rules and Host/Origin gates as above.
+`environment-serve` uses this environment setting; `--allowed-hosts` belongs to
+`rea mcp --http`. For example:
+
+```sh
+MCP_ALLOWED_HOSTS=127.0.0.1,rea.lan rea environment-serve manifest.json --evidence capture.json --host 0.0.0.0
+```
+
+`ENVIRONMENT_NAME` renames
 the served environment; set but blank, it is refused as `configuration_invalid`
-like a blank `MCP_HOST`. The bound URL is written to stderr as one JSON log line
+like a blank `MCP_HOST`. The admitted client URL is written to stderr as one JSON log line
 (`"msg":"MCP transport listening"`). See
 [agent environments](agent-environments.md) for what the state and replay
 return and do not establish.
@@ -939,6 +1002,35 @@ values instead of replacing them with an object label. Table widths are measured
 iteratively, so an admitted row page is not limited by the JavaScript function
 argument count.
 
+`--format csv` and `--format tsv` export one selected row collection. Select an
+exact array path with `--filter-output` and provide comma-separated direct
+scalar columns with `--columns`; column order is the output column order:
+
+```bash
+rea inspect-analysis-view request.json --format csv \
+  --filter-output normalized_result.rows --columns name,address
+```
+
+The first line is a REA metadata record,
+`# rea-delimited-v1 <JSON>`. It carries the selected path, view request, limitations and unknowns,
+coverage, source coverage and completeness, command, and duration. A metadata
+value of `null` means that the selected row collection did not provide that
+fact; it does not mean complete coverage. The following line is the header.
+CSV records use CRLF line endings; TSV records use LF. Cells containing the
+delimiter, quotes, or line breaks are quoted and embedded quotes are doubled.
+Values are emitted as UTF-8 without Unicode normalization. Missing and `null`
+cells are empty; booleans and finite numbers use their ordinary text forms.
+String cells and headers that begin with spreadsheet formula syntax are refused
+with a structured error; JSON retains those values unchanged.
+
+Delimited output does not flatten nested Evidence or nested field values.
+It returns a structured error and a nonzero status if the filter does not
+select exactly one row array, a row is not an object, or a selected cell is
+nested or formula-leading. JSON remains the complete canonical output; use it
+to retain fields outside the selected columns or preserve exact formula-leading
+text. Token counting and token windows are not
+available for CSV/TSV because slicing would corrupt records or metadata.
+
 `--filter-output` selects fields from successful command data. Classified failures
 retain their complete typed diagnostic projection even when the selector matches
 a field such as `code` or `message`, or names a missing field. `--full-output`
@@ -957,10 +1049,10 @@ Cutter when available. This is separate from `--format json`, which selects the
 CLI result representation; the global `--json` flag selects that same CLI
 representation.
 
-Cutter still accepts deprecated `--json=true` and `--json=false` compatibility
-values. When both forms are present, `--json-output` takes precedence in either
-argument order. Bare `--json` retains its global meaning of selecting JSON CLI
-output formatting.
+Cutter no longer accepts command-local `--json=true` or `--json=false`.
+Replace these with `--json-output=true` or `--json-output=false`, respectively.
+Combine `--json-output` with bare `--json` when both Cutter command output and
+the CLI result should use JSON; either argument order is accepted.
 
 | Status    | Meaning                                                                                                                                                                                                                                                                                                                                                                                |
 | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

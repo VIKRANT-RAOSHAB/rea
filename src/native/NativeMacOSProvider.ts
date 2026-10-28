@@ -1,3 +1,4 @@
+import { withArtifactTargetIdentity } from "../artifacts/withArtifactTargetIdentity.js";
 import { translateNativeCommandFailure } from "./NativeCommandAnalysisError.js";
 import {
   plistSourceFormat,
@@ -84,10 +85,7 @@ import {
 } from "../domain/apple/plistValue.js";
 import { createPlistNumberProjection } from "../domain/apple/plistNumbers.js";
 import type { NativeUiObservationResult } from "../domain/native/nativeUiObservation.js";
-import {
-  omittedPrototypeKeysLimitation,
-  parseXmlPropertyList,
-} from "../domain/propertyListKeys.js";
+import { parseXmlPropertyList } from "../domain/propertyListKeys.js";
 import {
   demangleSwiftSchema,
   inspectPlistSchema,
@@ -644,6 +642,9 @@ class NativeMacOSClient implements AnalysisClient {
     );
     if (!parsed.ok) return parsed;
     const { architectures } = parsed.value;
+    const limitations = architectures.flatMap(
+      (architecture) => architecture.limitations,
+    );
     const result = listArchitecturesSchema.parse({
       architectures: {
         items: architectures,
@@ -652,11 +653,11 @@ class NativeMacOSClient implements AnalysisClient {
         limitations: [],
       },
       provenance,
-      limitations: [],
+      limitations,
     });
     return ok({
       result: jsonValueSchema.parse(result),
-      limitations: [],
+      limitations,
       locations: architectureLocations(result.architectures.items),
     });
   }
@@ -808,11 +809,6 @@ class NativeMacOSClient implements AnalysisClient {
       ...parsed.limitations,
       ...entitlementValue.limitations.map((note) => `Entitlements: ${note}`),
       "Inspected a digest-verified Mach-O byte snapshot; filesystem-bound signing context and trust validation are not examined.",
-      ...(entitlementValue.omittedPrototypeKeys === 0
-        ? []
-        : [
-            `Entitlements: ${omittedPrototypeKeysLimitation(entitlementValue.omittedPrototypeKeys)}`,
-          ]),
     ];
     const architectures = codeSignArchitectures(parsed.format, this.target);
     if (architectures.length > 1)
@@ -961,58 +957,96 @@ class NativeMacOSClient implements AnalysisClient {
       );
     try {
       return await this.#plistResources.run(async () => {
+        if (
+          this.activeTarget === undefined ||
+          this.activeTarget.kind !== "executable" ||
+          this.activeTarget.bundleInfoPlist === undefined
+        )
+          return this.#readPlist(requested, signal, timeoutMs);
         try {
-          const plist =
-            this.bundleResourceRoot === undefined
-              ? await resolveNativePlistSelection(this.target, requested)
-              : resolveBundleResourcePlistSelection(
-                  this.bundleResourceRoot,
-                  requested,
-                );
-          if (!plist.ok) return plist;
-          const fileInput: NativePlistReadContext = {
-            selection: plist.value,
-            resources: this.#plistResources,
+          const observation = await withArtifactTargetIdentity(
+            this.activeTarget,
+            this.#plistResources,
+            async () => {
+              const result = await this.#readPlist(
+                requested,
+                signal,
+                timeoutMs,
+              );
+              if (!result.ok) throw result.error;
+              return result.value;
+            },
             signal,
-            timeoutMs,
-          };
-          const selected = await requireRegularPlist(fileInput);
-          if (!selected.ok) return selected;
-          const classified = await this.#run(
-            "inspect_plist",
-            "file",
-            ["-b", plist.value.path],
-            { signal, timeoutMs },
           );
-          if (!classified.ok) return classified;
-          const binary = await this.#inspectBinaryPlist(
-            fileInput,
-            classified.value,
-          );
-          if (binary !== undefined) return binary;
-          const format = await plistSourceFormat(
-            classified.value.stdout,
-            fileInput,
-          );
-          if (!format.ok) return format;
-          const source = await this.#inspectTextPlist(
-            fileInput,
-            classified.value,
-            format.value,
-          );
-          if (source !== undefined) return source;
-          return await this.#inspectConvertedPlist(
-            fileInput,
-            classified.value,
-            format.value,
-          );
+          return ok(observation);
         } catch (cause: unknown) {
-          // Producer failures stay opaque; only scope admission failures reach the file mapper.
-          return err(nativeOutputFailure("inspect_plist", cause));
+          if (cause instanceof AnalysisError) return err(cause);
+          return err(
+            nativePlistFailure(cause, {
+              path: this.activeTarget.path,
+              origin: "selected",
+            }),
+          );
         }
       });
     } catch (cause: unknown) {
       return err(nativePlistFailure(cause, undefined));
+    }
+  }
+
+  async #readPlist(
+    requested: string | undefined,
+    signal: AbortSignal | undefined,
+    timeoutMs: number,
+  ): Promise<Result<NativeObservation, AnalysisError>> {
+    try {
+      const plist =
+        this.bundleResourceRoot === undefined
+          ? await resolveNativePlistSelection(this.target, requested)
+          : resolveBundleResourcePlistSelection(
+              this.bundleResourceRoot,
+              requested,
+            );
+      if (!plist.ok) return plist;
+      const fileInput: NativePlistReadContext = {
+        selection: plist.value,
+        resources: this.#plistResources,
+        signal,
+        timeoutMs,
+      };
+      const selected = await requireRegularPlist(fileInput);
+      if (!selected.ok) return selected;
+      const classified = await this.#run(
+        "inspect_plist",
+        "file",
+        ["-b", plist.value.path],
+        { signal, timeoutMs },
+      );
+      if (!classified.ok) return classified;
+      const binary = await this.#inspectBinaryPlist(
+        fileInput,
+        classified.value,
+      );
+      if (binary !== undefined) return binary;
+      const format = await plistSourceFormat(
+        classified.value.stdout,
+        fileInput,
+      );
+      if (!format.ok) return format;
+      const source = await this.#inspectTextPlist(
+        fileInput,
+        classified.value,
+        format.value,
+      );
+      if (source !== undefined) return source;
+      return await this.#inspectConvertedPlist(
+        fileInput,
+        classified.value,
+        format.value,
+      );
+    } catch (cause: unknown) {
+      // Producer failures stay opaque; only scope admission failures reach the file mapper.
+      return err(nativeOutputFailure("inspect_plist", cause));
     }
   }
 
@@ -1491,13 +1525,11 @@ const parseEntitlements = (
   output: string,
 ): {
   readonly value: JsonValue;
-  readonly omittedPrototypeKeys: number;
   readonly limitations: readonly string[];
 } => {
   const start = output.indexOf("<?xml");
   const end = output.lastIndexOf("</plist>");
-  if (start < 0 || end < start)
-    return { value: null, omittedPrototypeKeys: 0, limitations: [] };
+  if (start < 0 || end < start) return { value: null, limitations: [] };
   const decoded = parseXmlPropertyList(
     output.slice(start, end + "</plist>".length),
   );
@@ -1506,7 +1538,6 @@ const parseEntitlements = (
   const value = numbers.project(projected.value);
   return {
     value,
-    omittedPrototypeKeys: decoded.omittedPrototypeKeys,
     limitations: [
       ...numbers.limitations(),
       ...(projected.nonFiniteRealCount === 0

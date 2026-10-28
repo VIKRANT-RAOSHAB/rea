@@ -86,8 +86,9 @@ name it `.har`.
   manifest's, unless the capture's origin is a loopback name or an IP literal:
   the capture file then names it (`grafana.har` and `grafana.capture.json`
   become `grafana`) and a `name-from-file` warning says so. A file name that
-  yields no portable label (kebab-case, at most 64 characters, not a Windows
-  device name) is refused; pass `--name`.
+  yields no portable label (kebab-case, at most 63 characters for a DNS service
+  label, not a Windows device name or a label interpreted as an IP address) is
+  refused; pass `--name`.
 - `--package-tarball` works as for the export, and `--capture-timeout-ms`
   as for `inspect-web-network-capture`.
 - `--dry-run` runs every stage and prints the report with `status: "planned"`
@@ -182,6 +183,7 @@ what to record next; hints never change what is served:
 | `side-effect`         | The write changed something besides its own entity, which the environment does not model.                                                                                                                                                        |
 | `unconfirmed`         | No later read showed the effect. Read the entity and its list after the write.                                                                                                                                                                   |
 | `incomplete-entities` | The write is confirmed, but the views that show its entity cannot render it in full. Read the written entity through every view that lists it.                                                                                                   |
+| `unknown-clock`       | The learned rules generate timestamps, but the capture establishes no global served clock start. Record usable start times and completed durations for every request.                                                                            |
 
 The bundle ships `evidence.json`, the whole capture Evidence, response bodies
 included. Inspection excludes the values of the standard authentication headers
@@ -203,7 +205,10 @@ attached and a transaction no record represents, and each transaction URL's
 query once. Bodies larger than 4 MiB of UTF-8 text are not
 scanned; `credential-scan-incomplete` counts them and lists up to 20 record or
 event pointers, including base64 bodies whose decoded scan was cut. An empty name
-warning does not establish that these bodies were checked. Names do not establish sensitivity,
+warning does not establish that these bodies were checked. A browser scenario's
+saved values (`save` and `save_response`) named like credentials but not marked
+`secret: true` are recorded unredacted; `credential-named-saved-values` lists up
+to 20 of them by parameter pointer. Names do not establish sensitivity,
 so the build never refuses on them. Capture
 
 Evidence also records the capture file's absolute path (`subject.local_path`,
@@ -401,7 +406,8 @@ returns that record's recorded response. Selection compares the supplied path
 parameters against the record's path segments at the parameter indexes, then
 the supplied query values against the record's query string, and keeps the
 record with the most matches; ties keep manifest order. A query argument accepts
-one string or an array of strings for repeated values; the array is matched
+one string, a number or boolean sent as its JSON text, or an array of strings for
+repeated values; the array is matched
 against every occurrence in captured order. The raw recorded query remains the
 replay evidence. The result reports
 where the answer came from:
@@ -608,8 +614,9 @@ shape and carries no annotations.
 Path parameters are required strings whose
 description names the segment index, the templating rule and the observed
 values (sampled within the list budget above; the manifest keeps them all);
-query parameter names accept an optional string or array of strings (for
-repeated values in captured order); write methods accept an
+query parameter names accept an optional string, number or boolean (a number or
+boolean is sent as its JSON text) or array of strings (for repeated values in
+captured order); write methods accept an
 optional `body` object described by the recorded top-level key types. Each
 input keeps its own argument: a query name equal to a path parameter's name is
 advertised as `query_<name>`, a query name longer than 64 characters as
@@ -763,11 +770,19 @@ sending a `derived` rule's member to an entity that does not hold the value the
 recorded call found, a nested clock on an entity holding no such object, and a
 rendered answer missing a field the recorded response carried, and an update or delete of an entity the state does not hold answers
 the recorded 400, 404 or 410 of the tool or of an item view of the type, if
-any. A refused call leaves the state unchanged. Values a write generates are
+any. A served delete of a type whose item view has a `deleted_flag` (the
+member, `deleted`, `isDeleted` or `is_deleted`, its reads set `true` on a
+record the application soft-deleted, as EspoCRM does) keeps the entity until
+`data/reset` or `data/add`, within the size `data/add` loads, so a read of it by
+id answers its last fields with that flag `true`. A refused call leaves the
+state unchanged. Values a write generates are
 deterministic: the clock starts at `write_clock` and advances one second per
 served write, sequences take one past both the largest held value and the
 largest they generated, and UUIDs and tokens derive from the state Evidence
-id, tool, field and write count, skipping held values. `data/reset` and
+id, tool, field and write count, skipping held values. If `write_clock` is null,
+plans needing `clock`, `held-clock`, or `nested-clock` retain their learned rules
+but are withheld with `unknown-clock`; other confirmed plans can still be served.
+`data/reset` and
 `data/add` restart the clock, counter and sequences, so the same calls after a
 reset give the same state. Answers carry `state: {"source": "state", "view":
 "create" | "update" | "delete", …}` or `"document-write"`; a bulk answer adds
@@ -982,7 +997,8 @@ serves replay. The complete tool catalog the bundle serves must also fit the
 server's advertised catalog budget before any files are written. Privately parsed JSON is sealed once so authentication
 and replay share immutable response trees rather than copying the capture repeatedly.
 `--name` replaces the manifest's portable kebab-case name as the env folder and env id
-(Windows device names such as `con` and `lpt1` are refused);
+(at most 63 characters for its DNS service label; Windows device names and
+labels interpreted as IP addresses are refused);
 `--package-tarball <path>` copies a packed `rea-agents` tarball into the env
 folder and makes the Dockerfile install it instead of the registry package and
 remove it in the same layer, which is how a checkout rather than a release is
@@ -1000,7 +1016,12 @@ Windows inherits ACLs and REA does not establish owner-only access there. Choose
 an already private Windows destination when captured content needs it.
 
 The Dockerfile sets `MCP_HOST=0.0.0.0` and `MCP_PORT=18765`, the port the
-framework maps for an MCP server env; the framework's own deploy supplies
+framework maps for an MCP server env, and `MCP_ALLOWED_HOSTS` naming the loopback
+addresses and the environment name, because the container binds outside loopback
+and the server refuses to serve on such a bind without an operator-declared
+allowlist: the framework's published port is reached over loopback and its
+gateway proxies to the env container by the compose service name (the
+environment name). The framework's own deploy supplies
 `MCP_HOST`, `MCP_PORT` and `ENVIRONMENT_NAME`, so the served card carries the
 env's name. It installs Debian's `python3` because the framework's local
 sandbox probes a container's readiness with `python3` inside it, which the slim
