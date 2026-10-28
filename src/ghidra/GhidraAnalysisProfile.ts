@@ -31,6 +31,7 @@ import {
   ghidraPowerPcLanguage,
   ghidraPowerPcProfileParameters,
 } from "./GhidraPowerPcProfile.js";
+import { RAW_BINARY_PROFILES } from "../domain/rawBinaryProfiles.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 import {
   GHIDRA_GAMECUBE_DOL_LANGUAGE,
@@ -236,6 +237,17 @@ export const resolveGhidraAnalysisProfile = async (
           language_selection: "caller-supplied-v1",
           entry_point: target.entryPoint,
           entry_seed: "external-entry-and-function-before-analysis-v1",
+          ...(target.loadAddress === undefined ||
+          target.loadAddress === target.entryPoint
+            ? {}
+            : { load_address: target.loadAddress }),
+          ...(RAW_BINARY_PROFILES[target.architecture].unitBytes === 1
+            ? {}
+            : {
+                address_coordinates: "byte-offsets-v1",
+                address_unit_bytes:
+                  RAW_BINARY_PROFILES[target.architecture].unitBytes,
+              }),
           ...analyzerParameters,
         }),
       }),

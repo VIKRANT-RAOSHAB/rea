@@ -186,6 +186,11 @@ CLI commands use the same workflows.
 REA requires Node.js 22.x (>=22.23.4), 24.x (>=24.22.1), or 26.12.1+, plus npm.
 Additional tools and host support depend on the target:
 
+This local device-extension branch adds portable firmware/cartridge/runtime
+inspection and extraction, plus expanded raw processor profiles on Windows.
+See `docs/device-firmware-extension.md` for the support matrix, commands, exact
+formats, versions, verification and limitations. This is not an upstream release.
+
 | Target                  | What REA returns                                                                                  | Requirements and guide                                                                                                                |
 | ----------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Desktop installations   | Runtime candidates, supporting files, component markers and next probes                           | Built-in bounded directory/header inspection; [desktop applications](docs/desktop-applications.md)                                    |

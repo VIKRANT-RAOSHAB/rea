@@ -483,9 +483,9 @@ describe("Ghidra raw-binary profile", () => {
       resolved.value.profile.digest,
     );
     const windows = provider(installationHost("win32"));
-    expect(windows.inspectTargetSupport(target).status).toBe("unsupported");
+    expect(windows.inspectTargetSupport(target).status).toBe("supported");
   });
-  it("binds raw m68k to the big-endian 68000 language outside Windows P0", async () => {
+  it("binds raw m68k to the big-endian 68000 language including Windows", async () => {
     const target: BinaryTarget = {
       path: "/tmp/m68k.bin",
       sha256: "a".repeat(64),
@@ -512,8 +512,8 @@ describe("Ghidra raw-binary profile", () => {
     expect(
       provider(installationHost("win32")).inspectTargetSupport(target),
     ).toMatchObject({
-      status: "unsupported",
-      code: "target_format_unsupported",
+      status: "supported",
+      code: null,
     });
   });
 });

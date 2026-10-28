@@ -10,6 +10,7 @@ import type { JsonValue } from "../domain/jsonValue.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { validateDosComLength } from "../domain/dosCom.js";
 import { err, ok, type Result } from "../domain/result.js";
+import { rawBinaryLoadAddress } from "../domain/rawBinaryProfiles.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 
 const sha256 = (bytes: Buffer): string =>
@@ -381,7 +382,7 @@ export const attestGhidraRawBinaryLoadImage = (
       "Ghidra raw-binary snapshot digest does not match the admitted target",
     );
   const language = ghidraRawBinaryLanguage(target.architecture);
-  const base = BigInt(target.entryPoint);
+  const base = BigInt(rawBinaryLoadAddress(target));
   const last = hexAddress(base + BigInt(snapshot.bytes) - 1n);
   const { checks, check } = createLoadImageChecks();
   const source = observations.source_files[0];
@@ -435,7 +436,7 @@ export const attestGhidraRawBinaryLoadImage = (
   );
   check(
     "mapping.start",
-    target.entryPoint,
+    rawBinaryLoadAddress(target),
     mapping?.start ?? null,
     0,
     mapping?.start ?? null,
@@ -470,17 +471,20 @@ export const attestGhidraRawBinaryLoadImage = (
       architecture: target.architecture,
       language_id: language.languageId,
       compiler_spec_id: language.compilerSpecId,
-      base_address: target.entryPoint,
+      base_address: rawBinaryLoadAddress(target),
       file_bytes: snapshot.bytes,
-      entry: { address: target.entryPoint, file_offset: 0 },
+      entry: {
+        address: target.entryPoint,
+        file_offset: Number(BigInt(target.entryPoint) - base),
+      },
       observations,
       checks,
       limitations: [
         "Raw binary is a headerless interpretation explicitly selected by the caller, not format identification from file bytes.",
-        "Verification covers complete original/modified source identity, initialized and loaded non-overlay file bytes in the default address space, the caller-supplied entry, and the bound Ghidra language with its fixed byte order. File offset 0 is mapped at the entry address.",
+        "Verification covers complete original/modified source identity, initialized and loaded non-overlay file bytes in the default address space, the caller-supplied entry, and the bound Ghidra language with its fixed byte order. File offset zero is mapped at the selected load address, or at the entry when no load address was supplied. REA coordinates are byte offsets.",
         "Ghidra may report additional language-defined external entries outside the mapped image. They are preserved as observations; verification requires the caller-supplied entry and does not attest other entries.",
         "Language-defined uninitialized memory, such as 6502 zero page and stack, is preserved as observations but is not attested as file-backed bytes.",
-        "Reset vectors, memory-mapped I/O, alternate-endian and Thumb-only variants, and runtime boot behavior are not modeled or verified. No original executable bytes are changed.",
+        "Reset vectors, memory-mapped I/O and runtime boot behavior are not emulated. Processor profile conventions and static decoding do not verify physical hardware behavior. No original executable bytes are changed.",
         "Mapping ends are inclusive; a mismatching digest identifies its source range, not the first differing byte.",
       ],
     }),

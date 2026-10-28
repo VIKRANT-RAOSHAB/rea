@@ -1,3 +1,4 @@
+import { registerDeviceArtifactCommands } from "./cli/deviceArtifactCommands.js";
 import { registerGpuCommands } from "./cli/gpuCommands.js";
 import { registerNativeFunctionMatchingCommands } from "./cli/nativeFunctionMatchingCommands.js";
 import { registerCaptureCommands } from "./cli/captureCommands.js";
@@ -173,6 +174,7 @@ export const createCli = (
   registerJebCommands(cli, logger, environment);
   registerAdbCommands(cli, logger, environment);
   registerFirmwareCommands(cli, logger, environment);
+  registerDeviceArtifactCommands(cli, logger);
   registerBinaryDiagnosticsCommands(cli, logger, environment);
   registerAnalysisViewCommands(cli, logger);
   registerNativeFunctionMatchingCommands(cli, logger, environment);

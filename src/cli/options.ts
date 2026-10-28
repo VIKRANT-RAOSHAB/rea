@@ -49,7 +49,13 @@ export const architectureSelectionOption = binaryArchitectureSchema
 export const entryPointSelectionOption = rawBinaryEntryPointSchema
   .optional()
   .describe(
-    "Caller-supplied load and entry address (0xhex); required with --target-format raw-binary, optional with gamecube-dol (must equal the DOL header entry)",
+    "Caller-supplied execution entry byte address (0xhex); required with --target-format raw-binary, optional with gamecube-dol (must equal the DOL header entry)",
+  );
+
+export const loadAddressSelectionOption = rawBinaryEntryPointSchema
+  .optional()
+  .describe(
+    "Raw file offset zero byte address; defaults to entry-point. All REA addresses are byte coordinates, including word-addressed processors.",
   );
 
 /** Shared CLI flags that bind a native target interpretation. */
@@ -57,6 +63,7 @@ export const nativeOpenOptionFields = {
   "target-format": formatSelectionOption,
   architecture: architectureSelectionOption,
   "entry-point": entryPointSelectionOption,
+  "load-address": loadAddressSelectionOption,
   provider: providerSelectionOption,
 };
 
@@ -67,6 +74,7 @@ export interface NativeOpenCliFlags {
   readonly "target-format"?: ExecutableFormatHint | undefined;
   readonly architecture?: BinaryArchitecture | undefined;
   readonly "entry-point"?: string | undefined;
+  readonly "load-address"?: string | undefined;
 }
 
 /** Map native CLI flags onto the shared one-shot analysis options. */
@@ -85,5 +93,8 @@ export const directAnalysisOptionsFromCli = (
   ...(options["entry-point"] === undefined
     ? {}
     : { entryPoint: options["entry-point"] }),
+  ...(options["load-address"] === undefined
+    ? {}
+    : { loadAddress: options["load-address"] }),
   ...(options.provider === undefined ? {} : { providerId: options.provider }),
 });

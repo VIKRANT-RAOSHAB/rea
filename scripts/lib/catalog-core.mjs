@@ -86,6 +86,8 @@ const SOURCE_PATHS = {
   desktopContracts: "dist/contracts/desktopApplicationToolContracts.js",
   managedContracts: "dist/contracts/managed/managedToolContracts.js",
   firmwareContracts: "dist/contracts/firmware/firmwareToolContracts.js",
+  deviceArtifactContracts:
+    "dist/contracts/firmware/deviceArtifactToolContracts.js",
   firmwareProvider: "dist/firmware/FirmwareRelease.js",
   androidContracts: "dist/contracts/android/androidToolContracts.js",
   flutterContracts: "dist/contracts/flutter/flutterToolContracts.js",

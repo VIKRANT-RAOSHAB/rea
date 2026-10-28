@@ -99,6 +99,13 @@ explicit path or endpoint and do not need it.
   `inspect_android_package`, then focused Android tools when advertised.
   Archive member inventory still uses the archive route above.
 - Managed PE/CLI assembly: `inspect_managed_artifact`.
+- Explicit HEX/S-record, UF2, Espressif image/partition table, selected console
+  cartridge, U-Boot image, SVD, UEFI, littlefs, MicroPython/Lua bytecode, or RTOS
+  saved-memory artifact: `inspect_device_artifact` when advertised. Select its
+  exact `format`; littlefs needs block geometry and RTOS needs a known-build
+  layout. Use `extract_device_artifact` only when materialized payloads are
+  needed, with a new absolute output directory. Partial format coverage and
+  static observations do not establish device behavior or original source.
 - Firmware image: `inspect_firmware_regions` when advertised. Use
   `extract_firmware` when extraction is requested, with a caller-selected new
   absolute output directory. These tools use caller-supplied Binwalk/Unblob on

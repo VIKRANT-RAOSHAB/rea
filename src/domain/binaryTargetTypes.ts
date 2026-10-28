@@ -14,6 +14,21 @@ export const BINARY_ARCHITECTURES = [
   "powerpc",
   "m68k",
   "hexagon",
+  "armv4t",
+  "thumb",
+  "cortex-m",
+  "avr8",
+  "pic12",
+  "pic16",
+  "pic18",
+  "8051",
+  "xtensa",
+  "mips32le",
+  "mips32be",
+  "riscv32",
+  "riscv64",
+  "z80",
+  "msp430",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 
@@ -24,6 +39,21 @@ export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 export const RAW_ONLY_ARCHITECTURES = [
   "6502",
   "m68k",
+  "armv4t",
+  "thumb",
+  "cortex-m",
+  "avr8",
+  "pic12",
+  "pic16",
+  "pic18",
+  "8051",
+  "xtensa",
+  "mips32le",
+  "mips32be",
+  "riscv32",
+  "riscv64",
+  "z80",
+  "msp430",
 ] as const satisfies readonly BinaryArchitecture[];
 export type RawOnlyArchitecture = (typeof RAW_ONLY_ARCHITECTURES)[number];
 
@@ -213,6 +243,9 @@ export type BinaryTarget =
       )[];
       readonly entryPoint: string;
       readonly entryPointSource: string;
+      /** File offset zero's byte address; defaults to entryPoint. */
+      readonly loadAddress?: string;
+      readonly loadAddressSource?: string;
       readonly executableRole?: never;
       readonly managed?: never;
     })

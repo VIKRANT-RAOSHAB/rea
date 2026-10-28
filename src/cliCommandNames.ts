@@ -1,5 +1,7 @@
 /** Canonical names used by every one-shot CLI command registration. */
 export const CLI_COMMANDS = Object.freeze({
+  inspectDeviceArtifact: "inspect-device-artifact",
+  extractDeviceArtifact: "extract-device-artifact",
   inspectPacketFields: "inspect-packet-fields",
   inspectPacketCapture: "inspect-packet-capture",
   inspectSignalDecoders: "inspect-signal-decoders",

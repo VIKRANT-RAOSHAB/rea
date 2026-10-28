@@ -232,6 +232,8 @@ export interface GhidraHeadlessLauncherOptions {
     readonly languageId: string;
     readonly compilerSpecId: string;
     readonly baseAddr: string;
+    readonly entryPoint?: string;
+    readonly addressUnitBytes?: number;
   };
   /** GameCube DOL import: committed language and the canonical section table text. */
   readonly gamecubeDol?: {
@@ -772,6 +774,8 @@ export interface GhidraHeadlessArgumentOptions {
     readonly languageId: string;
     readonly compilerSpecId: string;
     readonly baseAddr: string;
+    readonly entryPoint?: string;
+    readonly addressUnitBytes?: number;
   };
   readonly gamecubeDol?: {
     readonly languageId: string;
@@ -978,7 +982,7 @@ export const ghidraHeadlessArguments = (
                       "-loader",
                       "BinaryLoader",
                       "-loader-baseAddr",
-                      rawBinary.baseAddr,
+                      `0x${(BigInt(rawBinary.baseAddr) / BigInt(rawBinary.addressUnitBytes ?? 1)).toString(16)}`,
                       "-processor",
                       rawBinary.languageId,
                       "-cspec",
@@ -1010,6 +1014,7 @@ export const ghidraHeadlessArguments = (
           scriptPath.join(bridgeDirectory, GHIDRA_BRIDGE_SOURCES.prepareRaw),
           rawBinary.languageId,
           rawBinary.baseAddr,
+          ...(rawBinary.entryPoint === undefined ? [] : [rawBinary.entryPoint]),
         ]),
     ...(gamecubeDol === undefined
       ? []

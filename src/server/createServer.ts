@@ -1,3 +1,6 @@
+import { createDeviceArtifactService } from "../composition/deviceArtifacts.js";
+import type { DeviceArtifactService } from "../application/firmware/DeviceArtifactService.js";
+import { registerDeviceArtifactTools } from "./registerDeviceArtifactTools.js";
 import { AnalysisSettings } from "../application/AnalysisSettings.js";
 import { registerAnalysisSettingsTools } from "./registerAnalysisSettingsTools.js";
 import type { DevicetreeService } from "../application/binaryDiagnostics/DevicetreeService.js";
@@ -480,6 +483,7 @@ export const createServer = (
   const peResources = createPeResourcesService();
   const nativeExports = createNativeExportsService();
   const devicetree = createDevicetreeService();
+  const deviceArtifacts = createDeviceArtifactService();
   const elfNotes = createElfNotesService();
   const appleIps = createAppleIpsService();
   const kernelModule = createKernelModuleService();
@@ -607,6 +611,7 @@ export const createServer = (
       peResources.close(),
       nativeExports.close(),
       devicetree.close(),
+      deviceArtifacts.close(),
       elfNotes.close(),
       appleIps.close(),
       kernelModule.close(),
@@ -680,6 +685,7 @@ export const createServer = (
     peResources,
     nativeExports,
     devicetree,
+    deviceArtifacts,
     elfNotes,
     appleIps,
     kernelModule,
@@ -926,6 +932,7 @@ const registerConfiguredAnalysisTools = (
     peResources,
     nativeExports,
     devicetree,
+    deviceArtifacts,
     elfNotes,
     appleIps,
     kernelModule,
@@ -989,6 +996,13 @@ const registerConfiguredAnalysisTools = (
     toolLogger,
     recordEvidence,
     evidenceById,
+    withAdmittedAnalysis,
+  );
+  registerDeviceArtifactTools(
+    server,
+    deviceArtifacts,
+    toolLogger,
+    recordEvidence,
     withAdmittedAnalysis,
   );
   registerDevicetreeTool(
@@ -1199,6 +1213,7 @@ interface ServerToolContext extends ReturnType<typeof createSessionRecorders> {
   readonly peResources: PeResourcesService;
   readonly nativeExports: NativeExportsService;
   readonly devicetree: DevicetreeService;
+  readonly deviceArtifacts: DeviceArtifactService;
   readonly elfNotes: ElfNotesService;
   readonly appleIps: AppleIpsService;
   readonly kernelModule: KernelModuleService;

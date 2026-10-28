@@ -13,6 +13,23 @@ import {
   type ToolAvailability,
 } from "../contracts/toolOutputSchemaPrimitives.js";
 
+it("advertises portable device artifact tools without Linux firmware engines", () => {
+  const inventory = buildCapabilityInventory(
+    { open: false, capabilities: [] },
+    {
+      processCaptureEnabled: false,
+      firmwareInspectionEnabled: false,
+      firmwareExtractionEnabled: false,
+    },
+  );
+  for (const name of ["inspect_device_artifact", "extract_device_artifact"])
+    expect(inventory.find((tool) => tool.name === name)).toMatchObject({
+      available: true,
+      reason: "available",
+      remediation: null,
+    });
+});
+
 it("reports module syntax and native resolution availability separately", () => {
   const input = { open: false, capabilities: [] };
   const unavailable = buildCapabilityInventory(input, {

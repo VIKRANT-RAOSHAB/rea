@@ -273,6 +273,10 @@ export const providerCatalog = (sources) => {
       ),
     },
     {
+      identity: sources.artifactProviders.DEVICE_ARTIFACT_PROVIDER,
+      contracts: sources.deviceArtifactContracts.DEVICE_ARTIFACT_TOOL_CONTRACTS,
+    },
+    {
       identity: sources.androidProvider.JADX_PROVIDER_IDENTITY,
       contracts: sources.androidContracts.ANDROID_TOOL_CONTRACTS,
     },

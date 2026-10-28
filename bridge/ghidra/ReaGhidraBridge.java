@@ -4619,7 +4619,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 ? currentProgram.getAddressFactory().getDefaultAddressSpace()
                 : currentProgram.getAddressFactory().getAddressSpace(spaceName);
             if (space == null) return null;
-            Address address = space.getAddress(offset);
+            Address address = space.getAddress(Long.parseUnsignedLong(offset, 16));
             BigInteger requestedOffset = new BigInteger(offset, 16);
             BigInteger parsedOffset = new BigInteger(Long.toUnsignedString(address.getOffset()));
             if (!requestedOffset.equals(parsedOffset))

@@ -1,3 +1,4 @@
+import { DEVICE_ARTIFACT_TOOL_CONTRACTS } from "./firmware/deviceArtifactToolContracts.js";
 import { ANALYSIS_SETTINGS_TOOL_CONTRACTS } from "./analysisSettingsContracts.js";
 import { GPU_TOOL_CONTRACTS } from "./gpu/gpuToolContracts.js";
 import { CAPTURE_TOOL_CONTRACTS } from "./captures/captureToolContracts.js";
@@ -75,6 +76,7 @@ export const TOOL_CONTRACTS = [
   ...JEB_TOOL_CONTRACTS,
   ...ADB_TOOL_CONTRACTS,
   ...FIRMWARE_TOOL_CONTRACTS,
+  ...DEVICE_ARTIFACT_TOOL_CONTRACTS,
   ...MANAGED_WORKFLOW_TOOL_CONTRACTS,
   ...BROWSER_PROVIDER_TOOL_CONTRACTS,
   ...ELECTRON_TOOL_CONTRACTS,

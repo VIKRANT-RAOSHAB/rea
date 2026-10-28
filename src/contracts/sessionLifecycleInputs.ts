@@ -35,13 +35,21 @@ export const openBinaryInputSchema = z
     entry_point: rawBinaryEntryPointSchema
       .optional()
       .describe(
-        "Caller-supplied load and entry address (0xhex). File offset 0 is mapped here. Required with format=raw-binary; rejected otherwise. Optional with format=gamecube-dol; must equal the DOL header entry.",
+        "Caller-supplied execution entry byte address (0xhex). File offset zero maps at load_address when supplied, otherwise at this entry. Required with format=raw-binary; rejected otherwise. Optional with format=gamecube-dol; must equal the DOL header entry.",
+      ),
+    load_address: rawBinaryEntryPointSchema
+      .optional()
+      .describe(
+        "Raw file offset zero byte address; defaults to entry_point. Byte coordinates are used even for word-addressed CPUs.",
       ),
     provider_id: analysisProviderSelectorSchema.optional(),
     snapshot_path: snapshotPathSchema.optional(),
   })
   .superRefine((value, context) => {
     const pairing = rawBinarySelectionError({
+      ...(value.load_address === undefined
+        ? {}
+        : { loadAddress: value.load_address }),
       ...(value.format === undefined ? {} : { format: value.format }),
       ...(value.architecture === undefined
         ? {}

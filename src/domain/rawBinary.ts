@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-import type {
-  BinaryArchitecture,
-  HeaderArchitecture,
-  RawOnlyArchitecture,
-} from "./binaryTargetTypes.js";
+import type { BinaryArchitecture } from "./binaryTargetTypes.js";
 import type { ExecutableFormatHint } from "./dosCom.js";
 import { err, ok, type Result } from "./result.js";
+import {
+  RAW_BINARY_PROFILES,
+  type RawBinaryArchitecture,
+} from "./rawBinaryProfiles.js";
 
 /** Caller-visible CPU families admitted for headerless raw binaries. */
 export const BINARY_ARCHITECTURES = [
@@ -16,6 +16,21 @@ export const BINARY_ARCHITECTURES = [
   "arm64",
   "6502",
   "m68k",
+  "armv4t",
+  "thumb",
+  "cortex-m",
+  "avr8",
+  "pic12",
+  "pic16",
+  "pic18",
+  "8051",
+  "xtensa",
+  "mips32le",
+  "mips32be",
+  "riscv32",
+  "riscv64",
+  "z80",
+  "msp430",
 ] as const satisfies readonly BinaryArchitecture[];
 
 /** Provider-neutral CPU family for a caller-supplied raw-binary load. */
@@ -61,9 +76,11 @@ export const validateRawBinaryLength = (
 
 /** Admitted headerless load identity used by target resolution and profiles. */
 export interface RawBinaryAdmission {
-  readonly architecture: HeaderArchitecture | RawOnlyArchitecture;
+  readonly architecture: RawBinaryArchitecture;
   readonly entryPoint: string;
   readonly entryPointSource: string;
+  readonly loadAddress?: string;
+  readonly loadAddressSource?: string;
 }
 
 /** Why a headerless load was refused, with its owning classification. */
@@ -76,26 +93,17 @@ export interface RawBinaryAdmissionRejection {
   readonly constraint: "load_selection_rejected" | "file_format_rejected";
 }
 
-const addressWidth = (architecture: BinaryArchitecture): bigint =>
-  architecture === "6502"
-    ? 0xffffn
-    : architecture === "x86" ||
-        architecture === "arm" ||
-        architecture === "m68k"
-      ? 0xffffffffn
-      : 0xffffffffffffffffn;
-
 /** Validate architecture, entry, and that the mapped image fits the CPU width. */
 export const admitRawBinary = (input: {
   readonly architecture: unknown;
   readonly entryPoint: unknown;
+  readonly loadAddress?: unknown;
   readonly fileBytes: number;
 }): Result<RawBinaryAdmission, RawBinaryAdmissionRejection> => {
   const architecture = binaryArchitectureSchema.safeParse(input.architecture);
   if (!architecture.success)
     return err({
-      reason:
-        "raw-binary format requires architecture (x86, x86_64, arm, arm64, 6502, or m68k)",
+      reason: `raw-binary format requires architecture (${BINARY_ARCHITECTURES.join(", ")})`,
       constraint: "load_selection_rejected",
     });
   if (typeof input.entryPoint !== "string")
@@ -110,18 +118,11 @@ export const admitRawBinary = (input: {
       reason: entry.error,
       constraint: "load_selection_rejected",
     });
-  if (
-    (architecture.data === "arm" || architecture.data === "arm64") &&
-    entry.value.value % 4n !== 0n
-  )
+  const convention = RAW_BINARY_PROFILES[architecture.data];
+  const alignment = Math.max(convention.alignment, convention.unitBytes);
+  if (entry.value.value % BigInt(alignment) !== 0n)
     return err({
-      reason: `raw-binary ${architecture.data} entry_point ${entry.value.canonical} must be 4-byte aligned`,
-      constraint: "load_selection_rejected",
-    });
-  // 68000-family instruction words are fetched from even addresses.
-  if (architecture.data === "m68k" && entry.value.value % 2n !== 0n)
-    return err({
-      reason: `raw-binary m68k entry_point ${entry.value.canonical} must be 2-byte aligned`,
+      reason: `raw-binary ${architecture.data} entry_point ${entry.value.canonical} must be ${alignment}-byte aligned`,
       constraint: "load_selection_rejected",
     });
   const length = validateRawBinaryLength(input.fileBytes);
@@ -130,17 +131,48 @@ export const admitRawBinary = (input: {
       reason: length.error,
       constraint: "file_format_rejected",
     });
-  const last = entry.value.value + BigInt(input.fileBytes) - 1n;
-  const max = addressWidth(architecture.data);
-  if (entry.value.value > max || last > max)
+  if (input.fileBytes % convention.unitBytes !== 0)
     return err({
-      reason: `raw-binary mapping from ${entry.value.canonical} must fit in the ${architecture.data} address width`,
+      reason: `raw-binary ${architecture.data} requires complete ${convention.unitBytes}-byte address units`,
+      constraint: "file_format_rejected",
+    });
+  const load =
+    input.loadAddress === undefined
+      ? entry
+      : typeof input.loadAddress === "string"
+        ? parseRawBinaryEntryPoint(input.loadAddress)
+        : err("load_address must be a hexadecimal address of the form 0x…");
+  if (!load.ok)
+    return err({ reason: load.error, constraint: "load_selection_rejected" });
+  const base = load.value.value;
+  if (base % BigInt(convention.unitBytes) !== 0n)
+    return err({
+      reason: `raw-binary ${architecture.data} load_address must align to ${convention.unitBytes}-byte address units`,
+      constraint: "load_selection_rejected",
+    });
+  const last = base + BigInt(input.fileBytes) - 1n;
+  const max =
+    (1n << BigInt(convention.bits)) * BigInt(convention.unitBytes) - 1n;
+  if (base > max || last > max)
+    return err({
+      reason: `raw-binary mapping from ${load.value.canonical} must fit in the ${architecture.data} address width`,
+      constraint: "load_selection_rejected",
+    });
+  if (entry.value.value < base || entry.value.value > last)
+    return err({
+      reason: "raw-binary entry_point must fall within the mapped file",
       constraint: "load_selection_rejected",
     });
   return ok({
     architecture: architecture.data,
     entryPoint: entry.value.canonical,
     entryPointSource: entry.value.source,
+    ...(input.loadAddress === undefined
+      ? {}
+      : {
+          loadAddress: load.value.canonical,
+          loadAddressSource: load.value.source,
+        }),
   });
 };
 
@@ -149,9 +181,12 @@ export const rawBinarySelectionError = (input: {
   readonly format?: ExecutableFormatHint;
   readonly architecture?: unknown;
   readonly entryPoint?: unknown;
+  readonly loadAddress?: unknown;
 }): string | undefined => {
   const hasArchitecture = input.architecture !== undefined;
   const hasEntry = input.entryPoint !== undefined;
+  if (input.loadAddress !== undefined && input.format !== "raw-binary")
+    return "load_address applies only with format=raw-binary";
   if (input.format === "gamecube-dol") {
     // The DOL header fixes architecture; entry_point is checked against it at admission.
     return hasArchitecture

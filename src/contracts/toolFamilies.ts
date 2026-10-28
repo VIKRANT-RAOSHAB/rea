@@ -24,6 +24,7 @@ import { IL2CPP_TOOL_CONTRACTS } from "./il2cpp/il2cppToolContracts.js";
 import { MODEL_TOOL_CONTRACTS } from "./model/modelToolContracts.js";
 import { MANAGED_TOOL_CONTRACTS } from "./managed/managedToolContracts.js";
 import { FIRMWARE_TOOL_CONTRACTS } from "./firmware/firmwareToolContracts.js";
+import { DEVICE_ARTIFACT_TOOL_CONTRACTS } from "./firmware/deviceArtifactToolContracts.js";
 import { ANDROID_TOOL_CONTRACTS } from "./android/androidToolContracts.js";
 import { APKTOOL_TOOL_CONTRACTS } from "./apktool/apktoolToolContracts.js";
 import { PCAP_TOOL_CONTRACTS } from "./pcap/pcapToolContracts.js";
@@ -106,7 +107,7 @@ export const TOOL_FAMILY_DEFINITIONS = [
   {
     id: "firmware",
     surface: "firmware-provider",
-    contracts: FIRMWARE_TOOL_CONTRACTS,
+    contracts: [...FIRMWARE_TOOL_CONTRACTS, ...DEVICE_ARTIFACT_TOOL_CONTRACTS],
   },
   {
     id: "android",

@@ -34,6 +34,8 @@ export class ArtifactOperationError extends AnalysisError {
       | "inspect_pe_certificates"
       | "inspect_elf_notes"
       | "inspect_devicetree"
+      | "inspect_device_artifact"
+      | "extract_device_artifact"
       | "inspect_kernel_module"
       | "inspect_erlang_beam"
       | "extract_artifact"

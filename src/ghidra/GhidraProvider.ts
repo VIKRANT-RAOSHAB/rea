@@ -87,7 +87,10 @@ import {
   windowsNativeCapabilities,
 } from "../process/WindowsAuthority.js";
 
+import { BINARY_ARCHITECTURES as RAW_ARCHITECTURES } from "../domain/rawBinary.js";
+
 const SUPPORTED_ARCHITECTURES = new Set([
+  ...RAW_ARCHITECTURES,
   "x86",
   "x86_64",
   "arm",
@@ -679,7 +682,7 @@ const inspectWindowsP0TargetSupport = (
   diagnostics: Readonly<Record<string, JsonValue>>,
 ): ProviderTargetSupport => {
   // The raw 6502 lane uses the same immutable snapshot and native ownership boundary.
-  if (target.format === "raw-binary" && target.architecture === "6502")
+  if (target.format === "raw-binary")
     return { status: "supported", code: null, reason: null, diagnostics };
   // DOL is verified on POSIX hosts only; Windows P0 does not admit it, like the other non-PE lanes.
   if (target.format === "gamecube-dol")
@@ -695,7 +698,7 @@ const inspectWindowsP0TargetSupport = (
       status: "unsupported",
       code: "target_format_unsupported",
       reason:
-        "Windows Ghidra P0 accepts native PE and explicitly selected raw 6502 targets only.",
+        "Windows Ghidra accepts native PE and explicitly selected raw processor profiles.",
       diagnostics,
     };
   if (!WINDOWS_P0_NATIVE_PE_ARCHITECTURES.includes(target.architecture))

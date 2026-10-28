@@ -9,27 +9,29 @@ public final class ReaGhidraPrepareRaw extends GhidraScript {
     @Override
     public void run() throws Exception {
         String[] arguments = getScriptArgs();
-        if (arguments.length != 2) {
+        if (arguments.length != 2 && arguments.length != 3) {
             throw new IllegalArgumentException(
                 "Raw binary preparation requires the committed language and entry address"
             );
         }
         String expectedLanguage = arguments[0];
-        String entryHex = arguments[1];
+        String baseHex = arguments[1];
+        String entryHex = arguments.length == 3 ? arguments[2] : baseHex;
         if (!currentProgram.getLanguageID().getIdAsString().equals(expectedLanguage) ||
             !currentProgram.getExecutableFormat().equals("Raw Binary")) {
             throw new IllegalArgumentException(
                 "Raw binary preparation requires the committed language and BinaryLoader import"
             );
         }
-        Address entry = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(entryHex);
-        MemoryBlock block = entry == null ? null : currentProgram.getMemory().getBlock(entry);
+        Address base = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(Long.parseUnsignedLong(baseHex.replaceFirst("^0[xX]", ""), 16));
+        Address entry = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(Long.parseUnsignedLong(entryHex.replaceFirst("^0[xX]", ""), 16));
+        MemoryBlock block = currentProgram.getMemory().getBlock(base);
         boolean fileStart = false;
         if (block != null) {
             // Processor-defined zero page/stack blocks can precede the imported file.
             for (MemoryBlockSourceInfo source : block.getSourceInfos()) {
                 if (source.getFileBytes().isPresent() && source.getFileBytesOffset() == 0 &&
-                    entry.equals(source.getMinAddress())) {
+                    base.equals(source.getMinAddress())) {
                     fileStart = true;
                     break;
                 }
@@ -40,6 +42,7 @@ public final class ReaGhidraPrepareRaw extends GhidraScript {
                 "Raw binary import must map file offset 0 at the caller-supplied entry"
             );
         }
+        if (!block.contains(entry)) throw new IllegalArgumentException("Raw execution entry is outside the file-backed block");
         addEntryPoint(entry);
         if (!disassemble(entry) || createFunction(entry, "entry") == null) {
             throw new IllegalStateException("Raw binary entry cannot be decoded as a function");

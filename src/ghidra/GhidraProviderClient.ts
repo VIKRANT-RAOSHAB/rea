@@ -113,6 +113,10 @@ import {
   ghidraExtensionLimitations,
 } from "./extensions/GhidraExtensions.js";
 import { inspectWindowsNativeReadiness } from "../process/WindowsAuthority.js";
+import {
+  RAW_BINARY_PROFILES,
+  rawBinaryLoadAddress,
+} from "../domain/rawBinaryProfiles.js";
 import { ghidraRawBinaryLanguage } from "./GhidraRawBinaryLanguage.js";
 import { ghidraDolLanguage, ghidraDolSectionFile } from "./GhidraDolProfile.js";
 
@@ -366,12 +370,14 @@ export const createGhidraProviderClient = (input: {
       : []),
     ...(target.format === "raw-binary"
       ? [
-          "Headerless raw-binary analysis uses the caller-supplied architecture and entry address; file offset 0 is mapped at that address. Headers are not discovered from file bytes.",
-          "Little-endian generic Ghidra languages are used for x86, x86_64, arm, arm64, and NMOS 6502; m68k uses the big-endian 68000 default language, which decodes the 68040 superset. Big-endian ARM, Thumb-only, Cortex-M, 65C02, 65816, separate 68020/68030/CPU32/ColdFire variants, and other processor variants are unsupported in this increment.",
+          "Raw analysis uses the selected processor, load address and execution entry. All REA addresses use byte coordinates, including word-addressed code spaces. No header or board identity is inferred.",
+          "Processor profiles select explicit Ghidra languages and compiler conventions; they do not identify the original compiler or model a complete chip. Cortex-M/Thumb profiles use Thumb decoding. AVR8 and PIC12/PIC16 use word-addressed program spaces; packed HEX files must be decoded before raw import. Xtensa is the stock little-endian profile; custom extensions require separate support.",
           "Static analysis does not emulate reset vectors, memory-mapped I/O, or firmware boot sequences.",
         ]
       : []),
-    ...(target.architecture === "mips" ? (target.mips.limitations ?? []) : []),
+    ...(target.format === "elf" && target.architecture === "mips"
+      ? (target.mips.limitations ?? [])
+      : []),
     ...(committedProfile.parameters.mips_abi_basis ===
     "inferred-o32-assumption-v1"
       ? [
@@ -446,7 +452,10 @@ export const createGhidraProviderClient = (input: {
             rawBinary: {
               languageId: rawLanguage.languageId,
               compilerSpecId: rawLanguage.compilerSpecId,
-              baseAddr: target.entryPoint,
+              baseAddr: rawBinaryLoadAddress(target),
+              entryPoint: target.entryPoint,
+              addressUnitBytes:
+                RAW_BINARY_PROFILES[target.architecture].unitBytes,
             },
           }),
       ...(target.format === "gamecube-dol"

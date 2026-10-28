@@ -3,6 +3,10 @@
 Headerless images are covered here. GameCube/Wii DOL images have a header and
 use their own format selection; see [GameCube DOL analysis](ghidra-dol.md).
 
+This checkout includes an experimental [device extension](device-firmware-extension.md)
+with additional processor profiles and Windows raw imports. That guide lists the
+complete profile table and the separate portable container parsers.
+
 REA admits a headerless executable when the caller supplies the CPU family and
 the address where file offset 0 should be mapped. That interpretation is not
 inferred from a `.bin` suffix or from unrecognized bytes.
@@ -28,9 +32,11 @@ rea inspect-native-load-image /absolute/path/to/ecu.bin --target-format raw-bina
 }
 ```
 
-`architecture` is one of `x86`, `x86_64`, `arm`, `arm64`, `6502`, or `m68k`. `entry_point` is a
-hexadecimal address of the form `0x…`. The complete file is mapped starting at
-that address, and Ghidra seeds an `entry` function there before auto-analysis.
+`architecture` selects an explicit profile from the device-extension table.
+`entry_point` is a hexadecimal execution address of the form `0x…`.
+The complete file is mapped at optional `load_address`, which defaults to
+`entry_point`; Ghidra seeds an `entry` function at the execution address.
+All REA addresses are byte coordinates, including word-addressed AVR/PIC code.
 ARM and AArch64 entries must be 4-byte aligned; m68k entries must be 2-byte
 aligned; x86 and 6502 entries may be byte-aligned.
 For 6502, the entry and complete mapped file must fit within `0x0000..0xffff`;
@@ -41,9 +47,10 @@ for raw targets so callers can verify the selected mapping directly.
 Omitted `format` keeps header-based detection; architecture and entry without
 `format=raw-binary` are rejected.
 
-Ghidra imports a private snapshot with `BinaryLoader` and these generic
-languages and compiler specifications. Each family has one fixed byte order:
-m68k is big-endian and the others are little-endian.
+Ghidra imports a private snapshot with `BinaryLoader` and an explicit language
+and compiler convention. The original profiles are listed below; additional
+ARMv4T, Thumb/Cortex-M, AVR/PIC/8051, Xtensa, MIPS, RISC-V, Z80 and MSP430
+profiles are listed in the device-extension guide. Byte order is profile-specific.
 
 | architecture | language_id           | compiler_spec_id |
 | ------------ | --------------------- | ---------------- |
@@ -77,9 +84,9 @@ It also requires the source-backed block to be initialized, loaded, and
 non-overlay in the bound language's default address space. Contradictory mapping
 observations are retained with `mismatch`, even when the source hashes agree.
 
-Hopper and IDA refuse raw-binary targets. Windows Ghidra P0 admits native PE
-applications/DLLs and explicitly selected raw 6502 images. Other raw CPU families
-remain outside the Windows boundary. Native path admission, private DACLs, Job
+Hopper and IDA refuse raw-binary targets. This local Windows Ghidra extension
+admits native PE applications/DLLs and the documented explicit raw profiles.
+Native path admission, private DACLs, Job
 Object ownership, immutable snapshots, and the no-mutation policy still apply.
 
 ## NMOS 6502
@@ -132,7 +139,7 @@ calling conventions are analysis conventions, not a recovered source ABI.
 This lane does not interpret Amiga hunks, Atari ST, or other container headers,
 cartridge or console memory maps, or bank switching. REA does not read the
 initial stack pointer and reset vector from the first eight bytes; select the
-entry explicitly. Windows Ghidra P0 does not admit m68k.
+entry explicitly. This local extension also admits raw m68k on Windows.
 
 `npm run verify:ghidra:m68k` uses a source-owned 22-byte fixture written as
 annotated hex in the verifier, so it needs no assembler. The lane checks real
@@ -145,8 +152,8 @@ exercised.
 
 - Headers are not discovered from file bytes. This increment does not guess
   load addresses, vector tables, or memory maps.
-- Big-endian ARM, Thumb-only, Cortex-M, and other Ghidra processor variants are
-  unsupported. m68k is the only big-endian family.
+- Big-endian ARM and processor variants outside the explicit profile table
+  remain unsupported. Thumb/Cortex-M require their own explicit selections.
 - Reset vectors, memory-mapped I/O, and firmware boot sequences are not
   emulated.
 - Independent load-image verification covers source identity, mapped file
