@@ -60,6 +60,7 @@ export class UnityFsArtifactReader implements ArtifactReader {
   #blocks: readonly UnityFsBlock[] = [];
   #dataStart = 0;
   #remainingDecodeBytes = 0;
+  #remainingReadOperations = 0;
   #cachedBlock: { readonly index: number; readonly bytes: Buffer } | undefined;
   #closing = false;
 
@@ -134,9 +135,11 @@ export class UnityFsArtifactReader implements ArtifactReader {
         );
       if (state.unavailableCompression !== undefined) {
         const compression = String(state.unavailableCompression);
+        const limitation = `UnityFS member compression ${compression} is unsupported; no content hash or child artifact was produced.`;
         throw new ArtifactEntryContentUnavailable(
           `UnityFS directory entry ${String(state.entry.formatMetadata.index)} requires unsupported compression ${compression}`,
-          `UnityFS member compression ${compression} is unsupported; no content hash or child artifact was produced.`,
+          limitation,
+          { traversal: { status: "unknown", limitations: [limitation] } },
         );
       }
       if (this.#streams.size >= MAX_MEMBER_STREAMS)
@@ -263,7 +266,9 @@ export class UnityFsArtifactReader implements ArtifactReader {
       data_start: dataStart,
     };
     this.#dataStart = dataStart;
-    this.#blocks = blocks;
+    // Keep the source block count above, but do not revisit zero-output rows
+    // for every member. Parsed stream/compressed offsets remain authoritative.
+    this.#blocks = blocks.filter((block) => block.uncompressedSize > 0);
     this.#remainingDecodeBytes = budget;
     await this.#registerNodes(nodes, budget, signal);
     await this.#source.read(signal);
@@ -333,6 +338,16 @@ export class UnityFsArtifactReader implements ArtifactReader {
         unavailableCompression: unavailable?.compression,
       });
     }
+    // Four ordinary passes over admitted blocks, nodes and plaintext chunks,
+    // with a small-reader floor. Byte quotas alone cannot bound tiny-block I/O.
+    this.#remainingReadOperations =
+      4 *
+      Math.max(
+        1024,
+        this.#blocks.length +
+          nodes.length +
+          Math.ceil(Number(readableBytes) / CHUNK_BYTES),
+      );
   }
 
   async *#memberChunks(
@@ -353,6 +368,7 @@ export class UnityFsArtifactReader implements ArtifactReader {
       const block = this.#blocks[index]!;
       const first = Math.max(start - block.streamStart, 0);
       const last = Math.min(end - block.streamStart, block.uncompressedSize);
+      if (last <= first) continue;
       const plain =
         block.compression === UNITYFS_COMPRESSION_NONE
           ? undefined
@@ -361,6 +377,7 @@ export class UnityFsArtifactReader implements ArtifactReader {
         if (chunks++ % 64 === 0) await setImmediate();
         this.#assertOpen(signal);
         const size = Math.min(CHUNK_BYTES, last - offset);
+        if (plain === undefined) this.#reserveMemberRead();
         const chunk =
           plain === undefined
             ? await readArtifactFileBytes(
@@ -395,6 +412,7 @@ export class UnityFsArtifactReader implements ArtifactReader {
         this.#remainingDecodeBytes,
       );
     // Charge attempts too, before I/O/allocation; failed/cancelled work is not free.
+    this.#reserveMemberRead();
     this.#remainingDecodeBytes -= block.uncompressedSize;
     const encoded = await readArtifactFileBytes(
       handle,
@@ -411,6 +429,16 @@ export class UnityFsArtifactReader implements ArtifactReader {
     this.#assertOpen(signal);
     this.#cachedBlock = { index, bytes };
     return bytes;
+  }
+
+  #reserveMemberRead(): void {
+    if (this.#remainingReadOperations <= 0)
+      throw new ArtifactReaderFailure(
+        "limit",
+        "UnityFS exceeds its directory-and-chunk I/O work budget",
+        { boundary: "capacity" },
+      );
+    this.#remainingReadOperations--;
   }
 }
 

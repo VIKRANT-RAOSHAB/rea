@@ -210,21 +210,21 @@ const visitArtifactEntries = async (
           occurrence,
         );
       } catch (cause: unknown) {
-        let limitation: string;
         if (
-          cause instanceof DirectoryArtifactEntryAccessDenied ||
+          !(cause instanceof DirectoryArtifactEntryAccessDenied) &&
+          !(cause instanceof ArtifactEntryContentUnavailable)
+        )
+          throw cause;
+        abortIfNeeded(context.signal);
+        const limitation =
           cause instanceof ArtifactEntryContentUnavailable
-        ) {
-          abortIfNeeded(context.signal);
-          limitation =
-            cause instanceof ArtifactEntryContentUnavailable
-              ? cause.limitation
-              : cause.message;
-          context.traversal.onCoverage({
-            status: "unknown",
-            limitations: [limitation],
-          });
-        } else throw cause;
+            ? cause.limitation
+            : cause.message;
+        const traversal =
+          cause instanceof ArtifactEntryContentUnavailable
+            ? cause.traversal
+            : { status: "unknown" as const, limitations: [limitation] };
+        if (traversal !== undefined) context.traversal.onCoverage(traversal);
         occurrence.hash_status = "unavailable";
         occurrence.limitations.push(limitation);
       }

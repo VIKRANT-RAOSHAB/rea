@@ -167,6 +167,51 @@ describe("UnityFS allocation and malformed-input boundaries", () => {
   });
 });
 
+it.each([1, 2])(
+  "does no I/O for an empty block with codec %s and preserves source counts",
+  async (codec) => {
+    const original = buildUnityFs([{ path: "x", data: "ab" }], {
+      blockSize: 1,
+      blockCompression: 0,
+      blocksInfoCompression: 0,
+      flags: 0x40,
+    });
+    const tableSize = original.readUInt32BE(40);
+    // Insert an empty block between two one-byte plain blocks, preserving
+    // the member's two-byte virtual extent and the directory's exact bounds.
+    const emptyBlock = Buffer.alloc(10);
+    emptyBlock.writeUInt32BE(1, 4);
+    emptyBlock.writeUInt16BE(codec, 8);
+    const bytes = Buffer.concat([
+      original.subarray(0, 64 + 30),
+      emptyBlock,
+      original.subarray(64 + 30, 64 + tableSize),
+      Buffer.from([0x61, 0, 0x62]),
+    ]);
+    bytes.writeBigUInt64BE(BigInt(bytes.length), 32);
+    bytes.writeUInt32BE(tableSize + 10, 40);
+    bytes.writeUInt32BE(tableSize + 10, 44);
+    bytes.writeUInt32BE(3, 64 + 16);
+    const path = await fixture(bytes);
+    const admitted = await openRegularFile(path, { symlinks: "reject" });
+    const reader = new UnityFsArtifactReader(path, admitted);
+    try {
+      const [entry] = await entries(reader);
+      expect(reader.formatMetadata()?.block_count).toBe(3);
+      const reads = vi.spyOn(admitted.handle, "read");
+      try {
+        expect(await text(await reader.open(entry!))).toBe("ab");
+        expect(reads).toHaveBeenCalledTimes(2);
+      } finally {
+        reads.mockRestore();
+      }
+    } finally {
+      await reader.close();
+      await admitted.handle.close();
+    }
+  },
+);
+
 describe("UnityFS stream ownership and immutable cache", () => {
   it("retains descriptor ownership after cleanup fails and permits retry", async () => {
     const reader = new UnityFsArtifactReader(
@@ -263,6 +308,29 @@ describe("UnityFS stream ownership and immutable cache", () => {
 });
 
 describe("UnityFS stream capacity and cache ownership", () => {
+  it("bounds tiny-block I/O independently of decoded byte counts", async () => {
+    const size = 32;
+    const members = Array.from({ length: 129 }, (_, index) => ({
+      path: `alias-${String(index)}`,
+      offset: 0,
+      size,
+      data: index === 0 ? Buffer.alloc(size, 0x61) : Buffer.alloc(0),
+    }));
+    const reader = new UnityFsArtifactReader(
+      await fixture(buildUnityFs(members, { blockSize: 1 })),
+    );
+    try {
+      await expect(
+        (async () => {
+          for (const entry of await entries(reader))
+            await buffer(await reader.open(entry));
+        })(),
+      ).rejects.toMatchObject({ reason: "limit", boundary: "capacity" });
+    } finally {
+      await reader.close();
+    }
+  });
+
   it("does not let modified output chunks corrupt cached or concurrent member reads", async () => {
     const data = Buffer.alloc(1024 * 1024, 0x61);
     const reader = new UnityFsArtifactReader(

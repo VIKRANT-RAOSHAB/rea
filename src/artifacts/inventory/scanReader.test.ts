@@ -36,6 +36,12 @@ it("retains only producer-declared unavailable content as an unknown inventory f
   const failure = new ArtifactEntryContentUnavailable(
     "content unavailable",
     "Producer content is unsupported.",
+    {
+      traversal: {
+        status: "unknown",
+        limitations: ["Producer content is unsupported."],
+      },
+    },
   );
   const reader = readerFailingWith(failure);
   const result = await scanReader(reader, [reader]);
@@ -45,6 +51,20 @@ it("retains only producer-declared unavailable content as an unknown inventory f
   });
   expect(result.occurrences).toMatchObject([
     { logical_path: "member", artifact_id: null, hash_status: "unavailable" },
+  ]);
+});
+
+it("keeps known member enumeration complete when only its content is unavailable", async () => {
+  const reader = readerFailingWith(
+    new ArtifactEntryContentUnavailable(
+      "missing companion",
+      "Content bytes are unavailable.",
+    ),
+  );
+  const result = await scanReader(reader, [reader]);
+  expect(result.traversal.status).toBe("complete");
+  expect(result.occurrences).toMatchObject([
+    { logical_path: "member", hash_status: "unavailable", artifact_id: null },
   ]);
 });
 

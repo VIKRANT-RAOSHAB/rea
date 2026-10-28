@@ -285,7 +285,12 @@ const parseBlocks = async (
       throw unityFsFormatFailure(
         "plain block size disagrees with its declaration",
       );
-    if (compression !== UNITYFS_COMPRESSION_NONE && !lz4) unavailableCount++;
+    if (
+      uncompressedSize > 0 &&
+      compression !== UNITYFS_COMPRESSION_NONE &&
+      !lz4
+    )
+      unavailableCount++;
     if (compression !== UNITYFS_COMPRESSION_NONE && compressedSize === 0)
       throw unityFsFormatFailure("compressed block declares no bytes");
     blocks.push({

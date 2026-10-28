@@ -14,8 +14,8 @@ The directory flag identifies directories. Virtual offsets are not physical
 carrier locations: member `source_location` is null. Member reads only examine
 their covering blocks. Uncompressed ranges stream directly; compressed ranges
 reuse at most one completed decoded block. Independent 64 KiB output chunks
-preserve cache ownership. Carrier freshness is checked before every read,
-including cache hits, and after a completed stream. Reader close cancels and
+preserve cache ownership. Carrier freshness is checked when a member is opened,
+including when a cached block suffices, and after its stream completes. Reader close cancels and
 joins outstanding streams before releasing its descriptor.
 
 Data blocks compressed with none, LZ4 or LZ4HC are supported. LZMA-compressed
@@ -39,7 +39,11 @@ encoded representation; plain blocks stream without this allocation. A reader
 admits four active member streams. The shared archive plaintext-work ceiling
 is the larger of 256 MiB and 500 times carrier size: declared stream bytes,
 readable logical occurrences (including aliases), and cumulative block-decode
-attempts are each charged against that ceiling. Unavailable content is retained
+attempts are each charged against that ceiling. Empty-output blocks retain
+their source count and offsets but are removed from member read plans. A separate
+member-I/O budget allows four times the larger of 1,024 and the sum of nonempty
+blocks, directory nodes, and readable 64 KiB plaintext chunks. It admits ordinary
+passes while bounding repeated tiny-block reads independently of output bytes. Unavailable content is retained
 as named occurrences with unknown coverage and no invented content hash.
 
 Use existing summary delivery and retained inventory views for selected fields,
@@ -62,14 +66,21 @@ containers. Compact delivery keeps complete Evidence in the requested bundle.
 Synthetic fixtures cover format 6–8 layouts, padding independent of header
 alignment, directories, malformed tables, allocation admission, overlapping
 members, unsupported LZMA, cancellation inside decoding, paused iteration,
-close during I/O, cleanup retry, cache freshness and independent output buffers.
+close during I/O, cleanup retry, empty blocks with unsupported codecs, cache
+freshness and independent output buffers.
 Compiled CLI and full/compact MCP tests cover inventory and extraction.
 
 A public UnityPy `atlas_test` bundle (Unity 2018.4.11f1, format 6) is verified
 against independent UnityPy 1.24.2 raw member bytes. Source SHA-256:
 `61ee5afb5f5c64f0a4f65f039d09b2509198363e713423289c895067ac215177`.
 The source is pinned to UnityPy commit
-`417d59522a998fdee9a9c2b29fe35f3063222457`. Additional producer and performance
-verification is reported in the PR; synthetic fixtures alone do not establish
-real Unity version coverage. SerializedFile objects, textures and runtime
+`417d59522a998fdee9a9c2b29fe35f3063222457`. The same public corpus supplies
+`banner_1` (2018.4.4f1) and `char_118_yuki.ab` (5.6.7f1), whose raw members
+also match the independent oracle. `xinzexi_2_n_tex` (2017.4.37f1) uses LZMA
+data: its member names and sizes are retained with unavailable hashes and
+unknown coverage. UnityPy-produced repacks additionally verify format 7/8,
+padded and unpadded front tables, end tables, and unsupported LZMA directories.
+These repacks are library-produced tests, not Unity engine executions. The PR
+records producer parameters, source digests and measured task costs; synthetic
+fixtures alone do not establish real Unity version coverage. SerializedFile objects, textures and runtime
 behavior are outside this container reader's verification scope.
