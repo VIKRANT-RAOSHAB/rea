@@ -40,6 +40,8 @@ export interface RegistrationRunnerLaunch {
   readonly exitCode: string | number | null;
   readonly signal: string | null;
   readonly stdout: string;
+  /** Machine-readable consumers must reject an incomplete excerpt. */
+  readonly stdoutTruncated?: boolean;
   readonly stderr: string;
   readonly timedOut: boolean;
   readonly spawnError?: string;
@@ -61,6 +63,7 @@ export type RegistrationRunnerLauncher = (
     readonly platform: NodeJS.Platform;
     readonly resources: ArtifactResourceScope;
     readonly launcher?: typeof spawnOwnedProviderProcess;
+    readonly windowsVerbatimArguments?: boolean;
   },
 ) => Promise<RegistrationRunnerLaunch>;
 
@@ -156,6 +159,9 @@ export const launchRegistrationRunnerCommand: RegistrationRunnerLauncher = (
         runId: `rea-registration-prewarm-${randomUUID()}`,
         expectedCommand: null,
         sweepTokenOwnedProcesses: true,
+        ...(options.windowsVerbatimArguments === undefined
+          ? {}
+          : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
         signal: controller.signal,
       });
       supervisor = new ProviderProcessSupervisor(
@@ -217,6 +223,7 @@ export const launchRegistrationRunnerCommand: RegistrationRunnerLauncher = (
       exitCode: exit?.code ?? exit?.signal ?? null,
       signal: exit?.signal ?? null,
       stdout: stdout.text,
+      stdoutTruncated: stdout.truncated,
       stderr: stderr.text,
       timedOut,
       ...(spawnError === undefined ? {} : { spawnError }),
