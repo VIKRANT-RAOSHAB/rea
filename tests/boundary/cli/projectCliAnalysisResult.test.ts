@@ -4,6 +4,7 @@ import { AnalysisInputError } from "../../../src/domain/analysisErrorCore.js";
 import { analysisErrorWithCleanupFailure } from "../../../src/domain/analysisErrorCleanup.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { freezeJsonSnapshot } from "../../../src/domain/immutableJson.js";
+import { ownedJsonObjectSchema } from "../../../src/domain/jsonValue.js";
 import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
 import { err, ok } from "../../../src/domain/result.js";
 import { projectCliAnalysisResult } from "../../../src/cli/projectCliAnalysisResult.js";
@@ -45,6 +46,17 @@ it("projects bound input fields without changing canonical facts or nested ident
     { path: ["path", "path", 0] },
     { path: ["root"] },
   ]);
+  const details = ownedJsonObjectSchema.parse(
+    ownedJsonObjectSchema.parse(mapped).details,
+  );
+  const mappedIssues = details.issues;
+  const originalIssues = original.details?.issues;
+  if (!Array.isArray(mappedIssues) || !Array.isArray(originalIssues))
+    throw new Error("Expected projected input issues");
+  expect(mappedIssues[1]).toBe(originalIssues[1]);
+  expect(ownedJsonObjectSchema.parse(mappedIssues[0]).observed).toBe(
+    ownedJsonObjectSchema.parse(originalIssues[0]).observed,
+  );
 });
 
 it("keeps cleanup history and retained output while binding the actionable primary issue", () => {
@@ -90,6 +102,11 @@ it("keeps cleanup history and retained output while binding the actionable prima
       issues: [{ path: ["archive"], reason: "invalid_value" }],
     },
   });
+  const details = ownedJsonObjectSchema.parse(
+    ownedJsonObjectSchema.parse(mapped).details,
+  );
+  expect(details.diagnostics).toBe(original.details?.diagnostics);
+  expect(details.captured_output).toBe(original.details?.captured_output);
 });
 
 it("passes through successful data, unbound operations and unknown error values", () => {
