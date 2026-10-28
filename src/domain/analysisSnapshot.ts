@@ -77,6 +77,8 @@ const formatSchema = z.enum([
   "unityfs",
   "dmg",
   "pkg",
+  "intel-hex",
+  "srec",
   "plist",
   "javascript",
   "source-map",

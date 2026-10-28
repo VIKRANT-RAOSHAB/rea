@@ -260,7 +260,9 @@ export type BinaryTarget =
           | "godot-pck"
           | "unityfs"
           | "dmg"
-          | "pkg";
+          | "pkg"
+          | "intel-hex"
+          | "srec";
       })
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {

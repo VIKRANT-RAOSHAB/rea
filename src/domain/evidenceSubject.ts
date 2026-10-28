@@ -39,6 +39,8 @@ export const evidenceSubjectFormatSchema = z.enum([
   "entitlements",
   "pyinstaller",
   "node-sea",
+  "intel-hex",
+  "srec",
 ]);
 
 /** Format-owned architecture declarations shared by Evidence and persisted executions. */

@@ -74,6 +74,8 @@ export const liveBinaryTargetSummaryVariants = [
       "unityfs",
       "dmg",
       "pkg",
+      "intel-hex",
+      "srec",
     ]),
     architecture: z.null(),
   }),

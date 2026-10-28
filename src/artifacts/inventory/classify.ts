@@ -167,7 +167,9 @@ export const classifyAndHashRootForInventory = async (
       format === "godot-pck" ||
       format === "unityfs" ||
       format === "pyinstaller" ||
-      format === "node-sea";
+      format === "node-sea" ||
+      format === "intel-hex" ||
+      format === "srec";
     outcome = {
       kind: "completed",
       value: {

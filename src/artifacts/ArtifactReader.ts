@@ -180,6 +180,8 @@ export interface ArtifactReader {
     | "unityfs"
     | "pyinstaller"
     | "node-sea"
+    | "intel-hex"
+    | "srec"
     | "file";
   entries(
     signal?: AbortSignal,
