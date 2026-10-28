@@ -1321,8 +1321,18 @@ Moonshot's observed cap (community measurements: a 13.7 KB schema is accepted
 while a ~15 KB one is rejected). The setting is read at startup; restart the
 server to apply changes, as with `REA_MCP_MAX_RESPONSE_BYTES`. Explicitly select
 `full` to retain complete advertised input guidance and nested validation detail.
-Existing explicit profile choices are preserved. Compact presentation
-also reduces schemas whose expanded JSON tree exceeds ten levels, the limit
+Existing explicit profile choices are preserved.
+
+For `inspect_analysis_view`, use the producing tool description's retained-view
+handoff to choose a compatible view. The consumer description gives selected
+examples rather than an exhaustive list of kinds, facets or selectors. Its full
+input schema describes the accepted selector shapes; compatibility still depends
+on the parent Evidence. Compact presentation may reduce `view` to an object
+without nested selector guidance. An omitted example does not mean that its view
+is unsupported.
+
+Compact presentation also reduces schemas whose expanded JSON tree exceeds ten
+levels, the limit
 reported by strict-depth MCP clients in [#2813](https://github.com/morluto/rea/issues/2813).
 WorkBuddy/CodeBuddy gateways have also rejected full REA catalogs with an
 opaque `11133` error while accepting the compact profile
