@@ -4,6 +4,8 @@ export interface UnityFsMember {
   readonly path: string;
   readonly data: string | Buffer;
   readonly flags?: number;
+  readonly offset?: number;
+  readonly size?: number;
 }
 
 export interface UnityFsOptions {
@@ -17,6 +19,7 @@ export interface UnityFsOptions {
   readonly blockSize?: number;
   readonly declaredNodeCount?: number;
   readonly declaredBlockCount?: number;
+  readonly encodeBlock?: (data: Buffer) => Buffer;
 }
 
 const utf8 = (value: string): Buffer => Buffer.from(value, "utf8");
@@ -25,25 +28,18 @@ const cstring = (value: string): Buffer =>
 
 const align16 = (value: number): number => (value + 15) & ~15;
 
-/** A valid LZ4 block made of literal-only sequences; no compression attempted. */
+/** One final LZ4 literal sequence; separate sequences require intervening matches. */
 export const lz4LiteralBlock = (data: Buffer): Buffer => {
-  const chunks: Buffer[] = [];
-  let position = 0;
-  while (position < data.length) {
-    const run = Math.min(data.length - position, 0x10ffff);
-    const token = run >= 15 ? 0xf0 : run << 4;
-    const head: number[] = [token];
-    if (run >= 15) {
-      let extra = run - 15;
-      do {
-        head.push(Math.min(extra, 255));
-        extra -= 255;
-      } while (extra >= 0 && head[head.length - 1] === 255);
+  const head = [Math.min(data.length, 15) << 4];
+  if (data.length >= 15) {
+    let extra = data.length - 15;
+    while (extra >= 255) {
+      head.push(255);
+      extra -= 255;
     }
-    chunks.push(Buffer.from(head), data.subarray(position, position + run));
-    position += run;
+    head.push(extra);
   }
-  return Buffer.concat(chunks);
+  return Buffer.concat([Buffer.from(head), data]);
 };
 
 const maybeCompress = (data: Buffer, compression: number): Buffer =>
@@ -60,6 +56,7 @@ const chunkIntoBlocks = (
   stream: Buffer,
   blockSize: number,
   compression: number,
+  encodeBlock?: (data: Buffer) => Buffer,
 ): { records: BlockRecord[]; payload: Buffer[] } => {
   const records: BlockRecord[] = [];
   const payload: Buffer[] = [];
@@ -69,7 +66,8 @@ const chunkIntoBlocks = (
   ) {
     const uncompressed = stream.subarray(offset, offset + blockSize);
     if (uncompressed.length === 0 && stream.length !== 0) break;
-    const compressed = maybeCompress(uncompressed, compression);
+    const compressed =
+      encodeBlock?.(uncompressed) ?? maybeCompress(uncompressed, compression);
     records.push({
       uncompressedSize: uncompressed.length,
       compressedSize: compressed.length,
@@ -91,8 +89,8 @@ const buildTable = (
   let offsets = 0;
   const nodeRecords = members.map((member, index) => {
     const record = {
-      offset: offsets,
-      size: contents[index]?.length ?? 0,
+      offset: member.offset ?? offsets,
+      size: member.size ?? contents[index]?.length ?? 0,
       flags: member.flags ?? 0,
       path: member.path,
     };
@@ -146,6 +144,7 @@ export const buildUnityFs = (
     Buffer.concat(contents),
     blockSize,
     blockCompression,
+    options.encodeBlock,
   );
   const table = buildTable(members, contents, blockRecords, options);
   const compressedTable = maybeCompress(table, blocksInfoCompression);
@@ -171,7 +170,7 @@ export const buildUnityFs = (
   } else {
     blocksInfoOffset = position;
     dataStart =
-      formatVersion >= 7 || (flags & 0x200) !== 0
+      (flags & 0x200) !== 0
         ? align16(position + compressedTable.length)
         : position + compressedTable.length;
   }

@@ -42,14 +42,15 @@ export const unityFsMetadataSchema = z.strictObject({
   blocks_info_compressed_size: uint32,
   blocks_info_uncompressed_size: uint32,
   blocks_info_at_end: z.boolean(),
-  data_start: offset,
-  block_count: uint32,
+  data_start: offset.nullable(),
+  block_count: uint32.nullable(),
   /** The 16-byte producer hash of the uncompressed block stream, as declared. */
   data_hash: z.string().nullable(),
   directory_status: z.enum([
     "available",
     "encrypted",
     "unsupported-compression",
+    "unsupported-layout",
   ]),
 });
 export type UnityFsMetadata = z.infer<typeof unityFsMetadataSchema>;

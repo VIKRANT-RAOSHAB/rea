@@ -257,7 +257,7 @@ rea inspect-artifact content.bundle --detail summary --evidence_output evidence.
 rea extract-artifact content.bundle --json
 ```
 
-Format versions 6 through 9 retain header, block and directory facts with
+Format versions 6 through 8 retain header, block and directory facts with
 none/LZ4/LZ4HC block decompression. See [UnityFS](unityfs.md) for encryption
 and LZMA coverage boundaries.
 

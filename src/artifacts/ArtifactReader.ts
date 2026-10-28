@@ -340,3 +340,15 @@ export const artifactPrimaryCleanupLeases = (
     : cause instanceof AnalysisError && cause.cleanupIncomplete
       ? undefined
       : [];
+
+/** Known member identities whose content cannot be read; never a reader shutdown. */
+export class ArtifactEntryContentUnavailable extends ArtifactReaderFailure {
+  constructor(
+    message: string,
+    readonly limitation: string,
+    options?: ErrorOptions,
+    details?: ArtifactIntegrityDetails,
+  ) {
+    super("unavailable", message, options, details);
+  }
+}

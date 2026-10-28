@@ -49,6 +49,82 @@ const members: readonly UnityFsMember[] = [
 ];
 
 describe("UnityFsArtifactReader", () => {
+  it("preserves a directory node as a directory rather than declaring encryption", async () => {
+    await withReader(
+      buildUnityFs([
+        { path: "assets", data: "", flags: 1 },
+        { path: "assets/data.bin", data: "bytes", flags: 4 },
+      ]),
+      async (reader) => {
+        const entries = await list(reader);
+        expect(entries).toEqual([
+          expect.objectContaining({
+            path: "assets",
+            kind: "directory",
+            encrypted: false,
+          }),
+          expect.objectContaining({
+            path: "assets/data.bin",
+            kind: "file",
+            encrypted: false,
+          }),
+        ]);
+        expect(await text(await reader.open(entries[1]!))).toBe("bytes");
+      },
+    );
+  });
+
+  it("accepts consecutive dots within a safe filename", async () => {
+    await withReader(
+      buildUnityFs([{ path: "data..bin", data: "bytes" }]),
+      async (reader) => {
+        const [entry] = await list(reader);
+        expect(entry?.path).toBe("data..bin");
+        expect(await text(await reader.open(entry!))).toBe("bytes");
+      },
+    );
+  });
+
+  it("retains unknown directory facts instead of reporting zero blocks or offsets", async () => {
+    await withReader(
+      buildUnityFs(members, { flags: 0x1400 | 0x43 }),
+      async (reader) => {
+        await list(reader);
+        expect(reader.formatMetadata()).toMatchObject({
+          directory_status: "encrypted",
+          block_count: null,
+          data_start: null,
+        });
+      },
+    );
+  });
+
+  it("does not interpret a legacy encryption declaration as modern padding", async () => {
+    await withReader(
+      buildUnityFs(members, { engineVersion: "2019.4.20f1", flags: 0x243 }),
+      async (reader) => {
+        expect(await list(reader)).toEqual([]);
+        expect(reader.formatMetadata()).toMatchObject({
+          directory_status: "encrypted",
+        });
+      },
+    );
+  });
+
+  it("leaves ambiguous producer flag semantics unknown", async () => {
+    await withReader(
+      buildUnityFs(members, { engineVersion: "0.0.0", flags: 0x243 }),
+      async (reader) => {
+        expect(await list(reader)).toEqual([]);
+        expect(reader.formatMetadata()).toMatchObject({
+          directory_status: "unsupported-layout",
+        });
+      },
+    );
+  });
+});
+
+describe("UnityFS payloads and malformed declarations", () => {
   it.each([
     ["lz4hc table and blocks", {}],
     [
@@ -57,6 +133,7 @@ describe("UnityFsArtifactReader", () => {
     ],
     ["uncompressed blocks", { blockCompression: 0 }],
     ["blocks-info at the end", { blocksInfoAtEnd: true }],
+    ["aligned header without data padding", { flags: 0x43 }],
     ["format 6 without padding alignment", { formatVersion: 6, flags: 3 }],
   ] as const)("lists and reads every member with %s", async (_, options) => {
     await withReader(buildUnityFs(members, options), async (reader) => {
@@ -64,6 +141,7 @@ describe("UnityFsArtifactReader", () => {
       expect(entries.map(({ path }) => path)).toEqual(
         members.map(({ path }) => path),
       );
+      expect(entries.every(({ byteOffset }) => byteOffset === null)).toBe(true);
       expect(reader.formatMetadata()).toMatchObject({
         kind: "unityfs",
         format_version: "formatVersion" in options ? options.formatVersion : 8,
@@ -117,7 +195,9 @@ describe("UnityFsArtifactReader", () => {
       });
     });
   });
+});
 
+describe("UnityFS unavailable and malformed directories", () => {
   it("reports an encrypted directory as unknown coverage without entries", async () => {
     await withReader(
       buildUnityFs(members, { flags: 0x1400 | 0x43 }),
@@ -166,7 +246,7 @@ describe("UnityFsArtifactReader", () => {
       async (reader) => {
         const [entry] = await list(reader);
         if (entry === undefined) throw new Error("expected one entry");
-        await expect(text(await reader.open(entry))).rejects.toMatchObject({
+        await expect(reader.open(entry)).rejects.toMatchObject({
           reason: "unavailable",
         });
       },
@@ -174,6 +254,11 @@ describe("UnityFsArtifactReader", () => {
   });
 
   it.each([
+    [
+      "format 9 with a different block row layout",
+      buildUnityFs(members, { formatVersion: 9 }),
+      "unavailable",
+    ],
     [
       "an unsupported format version",
       buildUnityFs(members, { formatVersion: 0x40 }),

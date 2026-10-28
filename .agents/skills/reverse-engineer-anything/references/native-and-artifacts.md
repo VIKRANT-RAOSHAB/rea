@@ -657,6 +657,8 @@ UnityFS AssetBundle containers (`.bundle`, `.ab`, YooAsset packages and other
 byte-identified files) list `CAB-*` SerializedFiles and `.resS` members with
 header and node facts; none/LZ4/LZ4HC member blocks stream on demand. Bundles
 declaring asset-bundle encryption keep header facts with unknown directory
-coverage; LZMA blocks report unsupported coverage or an unavailable read. No
+coverage; LZMA member bytes retain named occurrences with unavailable hashes.
+Virtual member offsets are not physical carrier locations. Format 6–8 readers
+cache one decoded block and support retained filtered/paged views. No
 decryption or SerializedFile object decoding is provided. See
 [UnityFS](https://github.com/morluto/rea/blob/main/docs/unityfs.md).
