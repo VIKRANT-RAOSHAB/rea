@@ -804,28 +804,44 @@ const resolveViteOutputDependency = (
       unanalyzedFiles: context.unanalyzedFiles,
     }),
   );
-  const resolved = resolutions.filter(
-    ({ resolution_status: status }) => status === "resolved",
+  // An ancestor whose candidate exists but was not analyzed, or whose absence
+  // is unknown, may still be the build output directory. Keep it.
+  const candidates = resolutions.filter(
+    ({ resolution_status: status }) =>
+      status === "resolved" || status === "unavailable",
   );
-  const [single] = resolved;
-  if (resolved.length === 1 && single !== undefined) return single;
+  const [single] = candidates;
+  if (candidates.length === 1 && single !== undefined) return single;
   const root = resolutions.at(-1);
   if (root === undefined)
     throw new TypeError("A source path has at least the root directory");
+  if (candidates.length > 1) {
+    const { candidate_path: _rootCandidate, ...rootFacts } = root;
+    const paths = candidates.map(
+      (candidate) => candidate.resolved_path ?? candidate.candidate_path,
+    );
+    return {
+      ...rootFacts,
+      resolved_path: null,
+      resolution_status: "unavailable",
+      limitations: [
+        ...new Set([
+          ...candidates.flatMap(({ limitations }) => limitations),
+          `Several ancestors of the importing file may hold this Vite build-output path (${paths.join(", ")}); the build output directory is not established.`,
+        ]),
+      ],
+    };
+  }
   return {
     ...root,
     resolved_path: null,
     resolution_status:
-      resolved.length > 1
-        ? "unavailable"
-        : root.resolution_status === "resolved"
-          ? "not-found"
-          : root.resolution_status,
+      root.resolution_status === "resolved"
+        ? "not-found"
+        : root.resolution_status,
     limitations: [
       ...root.limitations,
-      resolved.length > 1
-        ? "Several ancestors of the importing file hold this Vite build-output path; the build output directory is not established."
-        : "A Vite preload dependency is relative to the build output directory, and no ancestor of the importing file holds it. Select the build output directory, which holds index.html and the assets directory.",
+      "A Vite preload dependency is relative to the build output directory, and no ancestor of the importing file holds it. Select the build output directory, which holds index.html and the assets directory.",
     ],
   };
 };

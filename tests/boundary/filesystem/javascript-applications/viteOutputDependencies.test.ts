@@ -67,4 +67,33 @@ describe("Vite build-output preload dependencies", () => {
       "A Vite preload dependency is relative to the build output directory",
     );
   });
+
+  it("keeps an inventoried but unanalyzed dependency under a nested build output directory", async () => {
+    const root = await createTestTempDirectory("rea-vite-output-css-");
+    await writeFixtureFiles(root, {
+      "dist/index.html":
+        '<!doctype html><script type="module" src="/assets/index.js"></script>',
+      "dist/assets/index.js": `
+        const __vite__mapDeps = (i, m = __vite__mapDeps, d =
+          (m.f || (m.f = ["assets/lazy.css"]))) => i.map((i) => d[i]);
+        export const route = () => __vite__mapDeps([0]);
+      `,
+      "dist/assets/lazy.css": ".lazy { color: green; }",
+    });
+    const result = await reconstructJavaScriptFixture(root);
+    const edge = result.graph.edges.find(
+      ({ properties }) =>
+        properties.specifier === "vite-output:assets/lazy.css",
+    );
+
+    expect(edge?.properties).toMatchObject({
+      resolution_status: "unavailable",
+      candidate_path: "dist/assets/lazy.css",
+    });
+    const serialized = JSON.stringify(edge);
+    expect(serialized).toContain("dist/assets/lazy.css");
+    expect(serialized).not.toContain(
+      "no ancestor of the importing file holds it",
+    );
+  });
 });

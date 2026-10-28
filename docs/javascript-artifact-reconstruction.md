@@ -368,7 +368,9 @@ Selected bounded text is then parsed as inert data to recover:
   relative to the importing chunk; base-relative entries such as
   `assets/chunk.js` carry a `vite-output:` specifier and resolve under the one
   ancestor directory of the importer that holds them, the build output
-  directory. Selecting only the assets directory leaves them `not-found`;
+  directory. A file found there but not analyzed, such as a stylesheet, stays
+  `unavailable` with its path. Selecting only the assets directory leaves them
+  `not-found`;
 - route, network endpoint, storage, and vendor-marker observations;
 - local source-map declarations and original
   source names and content digests;
