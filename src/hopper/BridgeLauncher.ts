@@ -422,7 +422,7 @@ export class HopperApplicationLauncher implements BridgeLauncher {
           return err(
             new HopperStartError({
               userMessage:
-                "The macOS Hopper launcher cannot pass quotation marks, backslashes or line breaks literally through its AppleScript handoff. Select launcher, target and runtime paths and loader arguments without these characters; the selected values were not rewritten.",
+                "The macOS Hopper launcher cannot pass double quotes, backslashes or line breaks literally through its AppleScript handoff. Select launcher, target and runtime paths and loader arguments without these characters; the selected values were not rewritten.",
               launchRejection: {
                 boundary: "argument_encoding",
                 reason: "applescript_literal",

@@ -8,6 +8,10 @@ import {
   type HopperApplicationLauncherOptions,
 } from "../../../../src/hopper/BridgeLauncher.js";
 import { projectAnalysisError } from "../../../../src/domain/analysisErrorProjection.js";
+import {
+  HopperStartError,
+  type HopperLaunchRejection,
+} from "../../../../src/domain/hopperErrors.js";
 import { execFileOutput } from "../../../../src/process/ExecFileOutput.js";
 import { createTestTempDirectory } from "../../../fixtures/temporaryDirectory.js";
 
@@ -76,9 +80,21 @@ const fixture = async (
 };
 
 const macTest = it.skipIf(process.platform === "win32");
-macTest.each(["target", "launcher", "runtime", "loader"] as const)(
+macTest.each([
+  ["target", 4],
+  ["launcher", null],
+  ["runtime", 2],
+  ["loader", 1],
+] as const)(
   "rejects unrepresentable %s values before handoff and releases its bootstrap and lease",
-  async (source) => {
+  async (source, argumentIndex) => {
+    const expected: HopperLaunchRejection = {
+      boundary: "argument_encoding",
+      reason: "applescript_literal",
+      ...(argumentIndex === null
+        ? { source: "launcher_path" as const }
+        : { source: "argument" as const, argument_index: argumentIndex }),
+    };
     for (const character of ['"', "\\", "\r", "\n"]) {
       const selected = `literal${character}value`;
       const options: Partial<NativeOptions> =
@@ -98,21 +114,15 @@ macTest.each(["target", "launcher", "runtime", "loader"] as const)(
         ok: false,
         error: {
           _tag: "HopperStartError",
-          launchRejection: {
-            boundary: "argument_encoding",
-            reason: "applescript_literal",
-          },
+          launchRejection: expected,
         },
       });
       if (result.ok) throw new Error("Expected literal admission failure");
-      expect(projectAnalysisError(result.error)).toMatchObject({
-        details: {
-          launch_rejection: {
-            boundary: "argument_encoding",
-            reason: "applescript_literal",
-          },
-        },
-      });
+      if (!(result.error instanceof HopperStartError)) throw result.error;
+      expect(result.error.launchRejection).toEqual(expected);
+      expect(
+        projectAnalysisError(result.error).details?.launch_rejection,
+      ).toEqual(expected);
       expect(handoff.spawn).not.toHaveBeenCalled();
       expect(input.verify).not.toHaveBeenCalled();
       expect(input.releases()).toBe(1);

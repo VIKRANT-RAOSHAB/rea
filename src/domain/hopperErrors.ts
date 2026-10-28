@@ -185,13 +185,17 @@ export type HopperLaunchRejection =
       /** Parsed failure reason supplied by the verification owner. */
       readonly reason: string;
     }
-  | {
+  | ({
       readonly boundary: "argument_encoding";
       readonly reason: "applescript_literal";
-      readonly source: "launcher_path" | "argument";
-      /** Zero-based index in the final vendor argv, excluding the executable. */
-      readonly argument_index?: number;
-    };
+    } & (
+      | { readonly source: "launcher_path" }
+      | {
+          readonly source: "argument";
+          /** Zero-based index in the final vendor argv, excluding the executable. */
+          readonly argument_index: number;
+        }
+    ));
 
 /** Hopper or the repository bridge could not be started. */
 export class HopperStartError extends HopperError {
