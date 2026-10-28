@@ -23,6 +23,16 @@ type RuntimeDependencies = NonNullable<Parameters<typeof run>[0]>;
 const nextTurn = (): Promise<void> =>
   new Promise((resolve) => setImmediate(resolve));
 
+const wrappedListenerDisconnect = (code: "EPIPE" | "ECONNRESET") => {
+  const error = new StreamableHttpListenError(
+    Object.assign(new Error("SECRET listener stack"), { code }),
+    "serving",
+  );
+  // Consumers must use the owner's parsed facts, not re-read its native cause.
+  Object.defineProperty(error, "cause", { value: new Error("opaque cause") });
+  return error;
+};
+
 const dependencies = ({
   serve,
   output,
@@ -71,48 +81,57 @@ describe("MCP runtime errors", () => {
 
   it.each([
     {
+      name: "a broken pipe",
       cause: Object.assign(new Error("SECRET broken pipe"), { code: "EPIPE" }),
       message: MCP_CONNECTION_LOST,
     },
     {
+      name: "a wrapped HTTP broken pipe",
+      cause: wrappedListenerDisconnect("EPIPE"),
+      message: MCP_CONNECTION_LOST,
+    },
+    {
+      name: "a wrapped HTTP reset",
+      cause: wrappedListenerDisconnect("ECONNRESET"),
+      message: MCP_CONNECTION_LOST,
+    },
+    {
+      name: "an unknown connection state",
       cause: new Error("SECRET transport stack"),
       message: MCP_TRANSPORT_ERROR,
     },
-  ])(
-    "reports transport recovery without exposing its cause ($message)",
-    async ({ cause, message }) => {
-      const output: string[] = [];
-      const shutdown: Array<() => void> = [];
-      const shutdownUnregistrations: string[] = [];
-      let options: McpServeOptions | undefined;
-      let closeCalls = 0;
-      const close = (): Promise<void> => {
-        closeCalls += 1;
-        return Promise.resolve();
-      };
-      const exitCodes: number[] = [];
-      expect(
-        await run(
-          dependencies({
-            serve: (_factory, received) => {
-              options = received;
-              return { close };
-            },
-            output,
-            shutdown,
-            exitCodes,
-            shutdownUnregistrations,
-          }),
-        ),
-      ).toBe(0);
-      options?.onerror?.(cause);
-      expect(output).toEqual([`${message}\n`]);
-      shutdown[0]?.();
-      await nextTurn();
-      expect(closeCalls).toBe(1);
-      expect(shutdownUnregistrations).toEqual(["shutdown"]);
-    },
-  );
+  ])("reports $name without exposing its cause", async ({ cause, message }) => {
+    const output: string[] = [];
+    const shutdown: Array<() => void> = [];
+    const shutdownUnregistrations: string[] = [];
+    let options: McpServeOptions | undefined;
+    let closeCalls = 0;
+    const close = (): Promise<void> => {
+      closeCalls += 1;
+      return Promise.resolve();
+    };
+    const exitCodes: number[] = [];
+    expect(
+      await run(
+        dependencies({
+          serve: (_factory, received) => {
+            options = received;
+            return { close };
+          },
+          output,
+          shutdown,
+          exitCodes,
+          shutdownUnregistrations,
+        }),
+      ),
+    ).toBe(0);
+    options?.onerror?.(cause);
+    expect(output).toEqual([`${message}\n`]);
+    shutdown[0]?.();
+    await nextTurn();
+    expect(closeCalls).toBe(1);
+    expect(shutdownUnregistrations).toEqual(["shutdown"]);
+  });
 
   it("unregisters every process-lifetime handler during idempotent shutdown", async () => {
     const shutdown: Array<() => void> = [];
