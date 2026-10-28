@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { jsonRecordSchema } from "../jsonRecord.js";
 import type { WebNetworkCaptureRecord } from "../webNetworkCapture.js";
 import { AnalysisUnsupportedTargetError } from "../analysisErrorCore.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
@@ -15,7 +16,10 @@ import {
   type TemplateRule,
 } from "./environmentManifestRules.js";
 import { admitHarCaptureParent } from "./WebNetworkProjectionAccumulator.js";
-import { admitScenarioCaptureParent } from "./scenarioCaptureRecords.js";
+import {
+  admitScenarioCaptureParent,
+  type ScenarioResponseBodyRetention,
+} from "./scenarioCaptureRecords.js";
 import { ROUTE_RULES } from "./webNetworkRouteTemplates.js";
 
 /** Opt-in template rules, each listed at most once; shared by every view that groups tools. */
@@ -30,7 +34,7 @@ export const templateRulesSchema = z
 export const environmentManifestViewRequestSchema = z.strictObject({
   kind: z.literal("environment-manifest"),
   template_rules: templateRulesSchema.describe(
-    "Opt-in template rules applied after the four format rules, each listed at most once: after-uid-literal templates the segment following a literal uid, opaque-token templates long mixed alphanumeric segments, sibling-variance merges groups that differ in one identifier-like segment, sibling-pair-variance merges groups that differ in two adjacent literals between a plural literal and another literal when at least three distinct pairs vary in both. Literal sibling folding into existing opt-in parameters also requires sibling-variance. Merged parameters are inferences.",
+    "Opt-in template rules applied after the four format rules, each listed at most once: after-uid-literal templates the segment following a literal uid, opaque-token templates long mixed alphanumeric segments, sibling-variance merges groups that differ in one identifier-like segment, sibling-pair-variance merges groups that differ in two adjacent literals between a plural literal and another literal when at least three distinct pairs vary in both, prefix-variance templates a literal at a position another tool templates by one of the other opt-in rules after the same preceding segments, at any method or length, when the literal is one of that parameter's observed values, carries a digit and has the length and character classes of one, or has the single length (eight or more characters) every observed value has and only their character classes. Literal sibling folding into existing opt-in parameters also requires sibling-variance. Merged parameters are inferences.",
   ),
   include_query_parameter_names: z
     .boolean()
@@ -69,7 +73,7 @@ const toolSchema = z.strictObject({
   body_shape: z
     .strictObject({
       type: z.literal("object"),
-      properties: z.record(z.string(), jsonTypeNameSchema),
+      properties: jsonRecordSchema(jsonTypeNameSchema),
     })
     .nullable(),
   statuses: z.array(z.number()),
@@ -133,6 +137,10 @@ export interface CaptureParent {
     | "capture_browser_scenario";
   readonly records: readonly WebNetworkCaptureRecord[];
   readonly total_records: number;
+  readonly scenarioResponseBodies?: ReadonlyMap<
+    number,
+    ScenarioResponseBodyRetention
+  >;
   readonly limitations: readonly string[];
   readonly artifact: { readonly path: string; readonly sha256: string | null };
 }
@@ -150,6 +158,7 @@ const admitCaptureParent = (
           operation: "capture_browser_scenario",
           records: scenario.value.records,
           total_records: scenario.value.totalRecords,
+          scenarioResponseBodies: scenario.value.responseBodies,
           limitations: scenario.value.limitations,
           artifact: { path: "", sha256: null },
         })
@@ -207,23 +216,32 @@ const addCaptureRecords = (
   ]);
   if (!limitations.ok) return limitations;
   for (const record of capture.records) {
-    const added = target.accumulator.add(record);
+    const added = target.accumulator.add(
+      record,
+      capture.scenarioResponseBodies?.get(record.ordinal),
+    );
     if (!added.ok) return added;
   }
   return ok(undefined);
 };
 
-/** Project retained request lines, from a HAR or a browser scenario, into a replayable tool surface; templates are inferences. */
-export const projectEnvironmentManifestView = (
-  parent: AnalysisViewParent,
+/** Create the manifest budget with its selected query names and template rules. */
+export const createEnvironmentManifestAccumulator = (
   view: AnalysisViewRequest,
-  accumulator = view.kind === "environment-manifest"
+): EnvironmentManifestAccumulator =>
+  view.kind === "environment-manifest"
     ? new EnvironmentManifestAccumulator(
         undefined,
         view.include_query_parameter_names,
         view.template_rules,
       )
-    : new EnvironmentManifestAccumulator(),
+    : new EnvironmentManifestAccumulator();
+
+/** Project retained request lines, from a HAR or a browser scenario, into a replayable tool surface; templates are inferences. */
+export const projectEnvironmentManifestView = (
+  parent: AnalysisViewParent,
+  view: AnalysisViewRequest,
+  accumulator = createEnvironmentManifestAccumulator(view),
 ): Result<UnsignedAnalysisView, AnalysisError> => {
   if (view.kind !== "environment-manifest")
     return err(

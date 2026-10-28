@@ -1,7 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { matchesGlob } from "node:path";
-import { CI_FLAGS as flags, MANUAL_VERIFIERS, SCOPES } from "./scopes.mjs";
+import {
+  CI_FLAGS as flags,
+  MANUAL_VERIFIERS,
+  SCOPES,
+  WINDOWS_EXECUTABLE_SELECTION_INPUTS,
+} from "./scopes.mjs";
 import { planTestSelection } from "./test-selection.mjs";
 
 // Test files select the host/runtime lanes that execute their focused suites.
@@ -22,13 +27,15 @@ const GUARDED_WORKFLOWS = new Set([
 // Sources compiled by build-conformance-fixtures.mjs. The readiness journey
 // analyzes the built C fixture as well as its own applications.
 const FIXTURE_SOURCES = [
+  "scripts/build-conformance-fixtures.mjs",
+  "scripts/verify-conformance-fixtures.mjs",
+  "scripts/lib/conformance-fixtures.mjs",
   "tests/conformance/c/**",
   "tests/conformance/napi/**",
   "tests/conformance/objc/**",
   "tests/conformance/swift/**",
   "tests/conformance/versions/**",
 ];
-const READINESS_SOURCES = ["tests/conformance/readiness/**"];
 // These reporters affect CI output only; they do not select a host or provider
 // verification lane when changed on their own.
 const PORTABLE_CI_REPORTERS = new Set([
@@ -63,6 +70,31 @@ function classifyPackage(base, head) {
   const after = JSON.parse(git("show", `${head}:package.json`));
   const { scripts: beforeScripts, ...beforeRest } = before;
   const { scripts: afterScripts, ...afterRest } = after;
+  const compilerDependencies = (metadata) => ({
+    dependencies: {
+      typescript: metadata.dependencies?.typescript,
+      tsrs: metadata.dependencies?.tsrs,
+    },
+    devDependencies: {
+      typescript: metadata.devDependencies?.typescript,
+      tsrs: metadata.devDependencies?.tsrs,
+    },
+  });
+  const compilerScripts = [
+    "compile",
+    "typecheck",
+    "build",
+    "build:cached",
+    "test:prepare",
+    "docs:prepare",
+    "verify:frida:bindings",
+  ].flatMap((name) => [name, `pre${name}`, `post${name}`]);
+  selected.package ||=
+    JSON.stringify(compilerDependencies(before)) !==
+      JSON.stringify(compilerDependencies(after)) ||
+    compilerScripts.some(
+      (name) => beforeScripts?.[name] !== afterScripts?.[name],
+    );
   if (JSON.stringify(beforeRest) !== JSON.stringify(afterRest)) {
     full("Package metadata or dependencies changed");
     return;
@@ -84,7 +116,7 @@ function classifyPackage(base, head) {
       continue;
     }
     if (
-      /^(test(?::|$)|check(?::|$)|lint(?::|$)|format(?::|$)|knip$|jscpd$)/.test(
+      /^(test(?::|$)|check(?::|$)|lint(?::|$)|format(?::|$)|knip(?::|$)|jscpd$)/.test(
         script,
       )
     )
@@ -179,6 +211,10 @@ if (tier === "reused") {
       .split("\0")
       .filter(Boolean);
     for (const file of files) {
+      selected.package ||= matchesAny(
+        file,
+        WINDOWS_EXECUTABLE_SELECTION_INPUTS,
+      );
       if (matchesAny(file, SCOPES.reverse_tools)) selected.reverse_tools = true;
       if (
         /^(README(?:_[^/]+)?\.md|AGENTS\.md|CONTRIBUTING\.md|CHANGELOG\.md|SECURITY\.md|native\/windows\/README\.md|\.github\/pull_request_template\.md)$/.test(
@@ -256,7 +292,6 @@ if (tier === "reused") {
         selected.fixtures = true;
         selected.readiness = true;
       }
-      if (matchesAny(file, READINESS_SOURCES)) selected.readiness = true;
       if (file.startsWith("tests/")) continue;
       if (
         /^(src\/process\/|src\/filesystem\/|src\/contracts\/tool|src\/server\/createServer|src\/cli\.ts|scripts\/ci\/)/.test(

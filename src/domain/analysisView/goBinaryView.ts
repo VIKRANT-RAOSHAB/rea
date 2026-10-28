@@ -1,14 +1,13 @@
+import { binaryMetadataArchitecture } from "../binaryMetadataArchitecture.js";
+import { metadataReportSubjectFormat } from "../apple/machoTargetSelection.js";
 import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import {
-  goArchitectureForSubject,
   goBinarySchema,
   goBuildInfoSchema,
   goModuleMetadataSchema,
   goModuleSchema,
-  type GoBinary,
 } from "../go/goBinary.js";
-import { isImmutableJsonSnapshot } from "../immutableJson.js";
 import { err, ok, type Result } from "../result.js";
 import type {
   AnalysisViewParent,
@@ -21,7 +20,8 @@ import {
   pageViewCoverage,
 } from "./analysisViewCoverage.js";
 import { analysisViewInputError } from "./analysisViewErrors.js";
-import { parseAnalysisViewResult } from "./analysisViewParent.js";
+import { createAnalysisViewResultReader } from "./analysisViewParent.js";
+import { selectViewRows } from "./selectViewRows.js";
 
 const indexSchema = z.number().int().nonnegative();
 const count = z.number().int().nonnegative();
@@ -74,6 +74,7 @@ export const goBinarySummarySchema = z.strictObject({
   architecture: goBinarySchema.shape.architecture,
   bits: goBinarySchema.shape.bits,
   byte_order: goBinarySchema.shape.byte_order,
+  selected_slice: goBinarySchema.shape.selected_slice,
   build_info: goBuildInfoSchema
     .omit({
       go_version_bytes_base64: true,
@@ -101,44 +102,7 @@ export const goBinarySummarySchema = z.strictObject({
     .nullable(),
 });
 
-// Reuse only authenticated immutable report facts, for their Evidence lifetime.
-// Inline mutable reports are validated each time; this never caches live files.
-const checkedReports = new WeakMap<object, GoBinary>();
-const parseReport = (
-  parent: AnalysisViewParent,
-): Result<GoBinary, AnalysisError> => {
-  const key = parent.normalizedResult;
-  const reusable =
-    parent.sealedResult === true &&
-    typeof key === "object" &&
-    key !== null &&
-    isImmutableJsonSnapshot(key);
-  const existing = reusable ? checkedReports.get(key) : undefined;
-  if (existing !== undefined) return ok(existing);
-  const parsed = parseAnalysisViewResult(goBinarySchema, parent);
-  if (!parsed.ok) return parsed;
-  // No schema transforms/coercions: keep the validated owner's frozen value.
-  const report = reusable ? (key as GoBinary) : parsed.value;
-  if (reusable) checkedReports.set(key, report);
-  return ok(report);
-};
-
-const selectRows = <Source, Row>(
-  rows: readonly Source[],
-  view: { readonly offset: number; readonly limit: number },
-  matches: (row: Source, index: number) => boolean,
-  project: (row: Source, index: number) => Row,
-): { rows: Row[]; total: number } => {
-  const selected: Row[] = [];
-  let total = 0;
-  for (const [index, row] of rows.entries()) {
-    if (!matches(row, index)) continue;
-    if (total >= view.offset && selected.length < view.limit)
-      selected.push(project(row, index));
-    total++;
-  }
-  return { rows: selected, total };
-};
+const parseReport = createAnalysisViewResultReader(goBinarySchema);
 
 /** Query the existing metadata owner's facts; never reopen or reinterpret a file. */
 export const projectGoBinaryView = (
@@ -158,13 +122,13 @@ export const projectGoBinaryView = (
   const parsed = parseReport(parent);
   if (!parsed.ok) return parsed;
   const report = parsed.value;
+  const subject = parent.subject;
   if (
-    parent.subject?.local_path !== report.artifact.path ||
-    parent.subject.digest.sha256 !== report.artifact.sha256 ||
-    parent.subject.format !==
-      (report.format === "macho" ? "mach-o" : report.format) ||
-    parent.subject.architecture !==
-      (goArchitectureForSubject(report.architecture) ?? null)
+    subject == null ||
+    subject.digest.sha256 !== report.artifact.sha256 ||
+    subject.format !== metadataReportSubjectFormat(report) ||
+    subject.architecture !==
+      (binaryMetadataArchitecture(report.architecture) ?? null)
   )
     return err(
       analysisViewInputError([
@@ -228,6 +192,9 @@ export const projectGoBinaryView = (
         architecture: report.architecture,
         bits: report.bits,
         byte_order: report.byte_order,
+        ...(report.selected_slice === undefined
+          ? {}
+          : { selected_slice: report.selected_slice }),
         build_info:
           info === null
             ? null
@@ -259,7 +226,7 @@ export const projectGoBinaryView = (
     view.fields === undefined ? undefined : new Set<string>(view.fields);
   if (view.collection === "dependencies") {
     const paths = view.paths === undefined ? undefined : new Set(view.paths);
-    const selected = selectRows(
+    const selected = selectViewRows(
       info?.module.dependencies ?? [],
       view,
       (row, index) =>
@@ -287,7 +254,7 @@ export const projectGoBinaryView = (
     });
   }
   const keys = view.keys === undefined ? undefined : new Set(view.keys);
-  const selected = selectRows(
+  const selected = selectViewRows(
     info?.module.settings ?? [],
     view,
     (row, index) =>
