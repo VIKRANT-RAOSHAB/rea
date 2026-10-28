@@ -17,7 +17,7 @@ const OPERATION = "analyze_javascript_application";
 /**
  * Combine repeated `--source-path` values with `--source-paths-json`, an inline
  * JSON array or a JSON file. A file keeps large selections below the host
- * command-line limit; entries remain exact application-relative paths and are
+ * command-line limit; entries remain application-relative selectors and are
  * not resolved against the working directory.
  */
 export const cliJavaScriptSourcePaths = async (

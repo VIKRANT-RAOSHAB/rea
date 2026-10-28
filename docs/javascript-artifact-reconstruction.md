@@ -86,32 +86,42 @@ properties and remains readable without migration.
 
 ## Select sources before analysis
 
-For a question about known entry sources, supply exact artifact-relative file
-paths in `source_paths`, or repeat `--source-path` on either CLI route:
+For a question about known entry sources, supply artifact-relative source
+selectors in `source_paths`, or repeat `--source-path` on either CLI route:
 
 ```bash
 rea analyze /absolute/path/to/app.asar \
-  --source-path package.json --source-path main.js --json
+  --source-path package.json --source-path "out/main/**" --json
 ```
 
 ```json
 {
   "input_path": "/absolute/path/to/app.asar",
-  "source_paths": ["package.json", "main.js"],
+  "source_paths": ["package.json", "out/main/**", "out/preload/**"],
   "detail": "summary"
 }
 ```
 
-REA inventories and verifies the complete artifact, including unselected bytes,
-but allocates source text and performs static analysis only for selected files.
-Include supporting manifests, HTML or source maps explicitly when needed;
-imports do not expand the selection. Paths must match relevant inventoried
-files exactly, including nested ASAR prefixes. Unknown paths, aliases and globs
-return an `invalid_request` correction. Selected files are analyzed in request
-order before unselected scopes are projected. Repeated paths preserve the
-caller's request and first-occurrence priority, analyzing the file once.
-Omit the selection for the existing complete
-application workflow.
+REA attempts to inventory and verify the artifact, including unselected bytes,
+but allocates source text and performs static analysis only for resolved files.
+Each selector resolves against the observed inventory, never the filesystem,
+so folder and glob selection works for an opaque ASAR and keeps the artifact
+identity. An entry that exactly names a relevant inventoried path selects it,
+including nested ASAR prefixes. Otherwise a folder selects every inventoried
+file under it, with or without a trailing slash, and a glob matches where `*`
+stays within one path segment, `**` spans zero or more whole segments and `?`
+matches one character. Matching is case-sensitive. Include supporting
+manifests, HTML or source maps explicitly when needed; imports do not expand
+the selection. With complete inventory, selectors that match no relevant
+inventoried file and path aliases such as `./main.js` return an `invalid_request`
+correction. When directory traversal is incomplete, unmatched selectors return
+an unavailable error with the retained inventory rather than establish absence.
+Observed folder/glob matches remain usable with the incomplete coverage and
+inventory limitations retained. Selected
+files are analyzed in request order before unselected scopes are projected;
+repeated or overlapping selectors preserve the caller's request and
+first-occurrence priority while analyzing each file once. Omit the selection
+for the existing complete application workflow.
 
 For a long selection, pass the paths as a JSON array with
 `--source-paths-json`, either inline or as a JSON file path. A file keeps the
@@ -126,7 +136,8 @@ rea analyze-javascript-application /absolute/path/to/app.asar \
 ```
 
 The result and summary retain `source_selection.requested_paths` and
-`source_selection.unselected_files`. Selecting every relevant file leaves this
+`source_selection.unselected_files`; when a folder or glob resolved sources,
+they also record exact paths in `source_selection.selected_paths`. Selecting every relevant file leaves this
 count at zero and adds no unselected-source caveat. Every relevant file keeps its
 original inventory identity; unselected files report `text_status:
 "outside-analysis-scope"`. Their relationships remain unknown, and application

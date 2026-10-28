@@ -21,6 +21,7 @@ import type { ArtifactOccurrence } from "../../domain/artifactGraph.js";
 import type { ArtifactInventorySnapshot } from "../../domain/artifactInventorySnapshot.js";
 import { AnalysisInputError } from "../../domain/analysisErrorCore.js";
 import { isJavaScriptSourcePath } from "../../domain/javascript/javascriptArtifactFiles.js";
+import { resolveJavaScriptSourceSelection } from "../../domain/javascript/javascriptSourceSelectionResolution.js";
 
 import type {
   JavaScriptArtifactFileKind,
@@ -76,48 +77,45 @@ export const readJavaScriptArtifactFiles = async (
 ): Promise<JavaScriptArtifactFileSet> => {
   const inventory = expectedInventory(snapshot);
   const expected = inventory.files;
-  const selectedPaths =
+  const resolution =
     sourcePaths === undefined
       ? undefined
-      : new Map([...new Set(sourcePaths)].map((path, index) => [path, index]));
-  const undiscoveredPath = sourcePaths?.find(
-    (path) =>
-      relevantKind(path) !== undefined &&
-      !expected.has(path) &&
-      !inventory.unavailableFiles.has(path) &&
-      snapshot.occurrences[
-        lowerBound(snapshot.occurrences, path, (entry) => entry.logical_path)
-      ]?.logical_path !== path,
-  );
-  if (undiscoveredPath !== undefined && snapshot.coverage.status === "unknown")
+      : resolveJavaScriptSourceSelection(
+          sourcePaths,
+          [...expected.keys()],
+          inventory.unavailableFiles,
+        );
+  const selectedPaths =
+    resolution === undefined
+      ? undefined
+      : new Map(resolution.selectedPaths.map((path, index) => [path, index]));
+  if (
+    resolution?.requiresCompleteInventory &&
+    snapshot.coverage.status === "unknown"
+  )
     throw new ArtifactReaderFailure(
       "unavailable",
-      `Selected source discovery is unavailable under incomplete artifact traversal: ${undiscoveredPath}`,
+      "Unmatched source selection requires a complete artifact inventory; discovery is unavailable under incomplete traversal.",
       {
         partialObservation: { kind: "artifact-inventory", inventory: snapshot },
       },
     );
-  const issues = (sourcePaths ?? []).flatMap((path, index) =>
-    expected.has(path) || inventory.unavailableFiles.has(path)
+  const issues =
+    resolution === undefined
       ? []
-      : [
-          {
-            path: ["source_paths", index],
-            reason: "invalid_value" as const,
-            message:
-              "Select an exact relevant file path from the artifact inventory; no globs or path aliases.",
-          },
-        ],
-  );
+      : resolution.unmatchedIndexes.map((index) => ({
+          path: ["source_paths", index],
+          reason: "invalid_value" as const,
+          message:
+            "Select an inventoried file path, folder, or glob that matches at least one relevant inventoried file; path aliases are not resolved.",
+        }));
   if (issues.length > 0)
     throw new AnalysisInputError(
       "analyze_javascript_application",
       undefined,
       issues,
     );
-  const unavailablePath = sourcePaths?.find((path) =>
-    inventory.unavailableFiles.has(path),
-  );
+  const unavailablePath = resolution?.unavailablePaths[0];
   if (unavailablePath !== undefined)
     throw new ArtifactReaderFailure(
       "unavailable",
@@ -181,11 +179,14 @@ export const readJavaScriptArtifactFiles = async (
     ),
     text_bytes_read: context.textBytes,
     invalid_utf8_files: context.invalidUtf8,
-    ...(sourcePaths === undefined
+    ...(sourcePaths === undefined || resolution === undefined
       ? {}
       : {
           source_selection: {
             requested_paths: [...sourcePaths],
+            ...(resolution.expanded
+              ? { selected_paths: [...resolution.selectedPaths] }
+              : {}),
             unselected_files: files.filter(
               ({ text }) =>
                 !text.included && text.reason === "outside-analysis-scope",

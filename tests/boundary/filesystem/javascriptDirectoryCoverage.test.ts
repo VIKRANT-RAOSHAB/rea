@@ -10,6 +10,74 @@ import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/j
 import { DirectoryArtifactReader } from "../../../src/artifacts/DirectoryArtifactReader.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
+it
+  .skipIf(process.platform === "win32" || process.getuid?.() === 0)
+  .for(["private/**", "private", "private/hidden?.js"])(
+  "keeps selector %s unresolved under unreadable directory traversal",
+  async (selector) => {
+    const root = await createTestTempDirectory("rea-js-selection-permissions-");
+    const denied = join(root, "private");
+    await mkdir(denied);
+    await writeFile(join(root, "good.js"), "export const observed = true;");
+    await writeFile(join(denied, "hidden1.js"), "export const unseen = true;");
+    await chmod(denied, 0);
+    try {
+      const result = await analyzeJavaScriptApplication({
+        input_path: root,
+        source_paths: [selector],
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          reason: "unavailable",
+          partialObservation: {
+            kind: "artifact-inventory",
+            inventory: { coverage: { status: "unknown" } },
+          },
+        },
+      });
+    } finally {
+      await chmod(denied, 0o700);
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+  "keeps observed folder matches useful with explicit incomplete inventory coverage",
+  async () => {
+    const root = await createTestTempDirectory("rea-js-selection-readable-");
+    const denied = join(root, "private");
+    await mkdir(denied);
+    await mkdir(join(root, "src"));
+    await writeFile(
+      join(root, "src", "good.js"),
+      "export const observed = true;",
+    );
+    await writeFile(join(denied, "hidden.js"), "export const unseen = true;");
+    await chmod(denied, 0);
+    try {
+      const response = await analyzeJavaScriptApplication({
+        input_path: root,
+        source_paths: ["src"],
+      });
+      if (!response.ok) throw response.error;
+      const result = javascriptApplicationAnalysisResultSchema.parse(
+        response.value.normalized_result,
+      );
+      expect(result.source_selection).toMatchObject({
+        requested_paths: ["src"],
+        selected_paths: ["src/good.js"],
+      });
+      expect(result.graph.coverage.status).toBe("partial");
+      expect(result.graph.limitations).toContainEqual(
+        expect.stringContaining('directory-descendants at "private"'),
+      );
+    } finally {
+      await chmod(denied, 0o700);
+    }
+  },
+);
+
 it.skipIf(process.platform === "win32")(
   "projects inventoried special-entry omissions into partial application coverage",
   async () => {

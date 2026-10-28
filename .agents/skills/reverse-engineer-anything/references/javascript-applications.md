@@ -10,18 +10,21 @@ caller-supplied Wakaru on Linux x64; see [the recovery guide](https://github.com
 
 Use `analyze_javascript_application` directly on the operator-supplied ASAR or
 extracted tree. When the question concerns known source paths and the connected
-schema advertises `source_paths`, select exact inventoried paths such as
-`["package.json", "main.js", "preload.js"]`. Include supporting manifests or
-source maps explicitly; dependencies are not implicitly analyzed. REA retains
-the complete artifact inventory and identity but reads source text and analyzes
-only selected files. The result and summary record `source_selection`; files
-outside scope and their relationships remain unknown, so partial application
-coverage does not mean the selected source failed. Use repeated `--source-path`
-on either static application CLI route, or `--source-paths-json` with a JSON
-file for selections too long for one command line. Omit the selection when the
-question requires complete application analysis; `source_paths: []` is invalid,
-not an unfiltered request. `detail: "summary"` reduces delivery
-and does not by itself reduce analysis work.
+schema advertises `source_paths`, select inventoried sources: exact paths such
+as `["package.json", "main.js", "preload.js"]`, a folder such as `out/main`, or
+an inventory glob such as `["out/main/**", "out/preload/**"]`. Include
+supporting manifests or source maps explicitly; dependencies are not implicitly
+analyzed. REA retains the observed artifact inventory and identity but reads
+source text and analyzes only resolved files. The result and summary record
+`source_selection`, including the resolved `selected_paths` when a folder or
+glob was used; files outside scope and their relationships remain unknown, so
+partial application coverage does not mean the selected source failed. Use
+repeated `--source-path` on either static application CLI route, or
+`--source-paths-json` with a JSON file for a selection too long for one command
+line. Omit the selection when the question requires complete application
+analysis; `source_paths: []` is invalid, not an unfiltered request.
+`detail: "summary"` reduces delivery and does not by itself reduce analysis
+work.
 
 ASAR header/index admission defaults to 16 MiB / 16777216 bytes;
 an admission error names `asar.max_header_bytes` and its bounds (at most
