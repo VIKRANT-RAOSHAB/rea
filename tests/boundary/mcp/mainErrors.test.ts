@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { run, runEntrypoint } from "../../../src/main.js";
 import {
   MCP_CONNECTION_LOST,
+  MCP_TRANSPORT_ERROR,
   MCP_CONNECTION_START_FAILED,
   MCP_HTTP_LISTEN_FAILED,
   MCP_SHUTDOWN_FAILED,
@@ -68,38 +69,50 @@ describe("MCP runtime errors", () => {
     expect(child.stderr).toBe("");
   });
 
-  it("reports connection loss without the transport cause", async () => {
-    const output: string[] = [];
-    const shutdown: Array<() => void> = [];
-    const shutdownUnregistrations: string[] = [];
-    let options: McpServeOptions | undefined;
-    let closeCalls = 0;
-    const close = (): Promise<void> => {
-      closeCalls += 1;
-      return Promise.resolve();
-    };
-    const exitCodes: number[] = [];
-    expect(
-      await run(
-        dependencies({
-          serve: (_factory, received) => {
-            options = received;
-            return { close };
-          },
-          output,
-          shutdown,
-          exitCodes,
-          shutdownUnregistrations,
-        }),
-      ),
-    ).toBe(0);
-    options?.onerror?.(new Error("SECRET transport stack"));
-    expect(output).toEqual([`${MCP_CONNECTION_LOST}\n`]);
-    shutdown[0]?.();
-    await nextTurn();
-    expect(closeCalls).toBe(1);
-    expect(shutdownUnregistrations).toEqual(["shutdown"]);
-  });
+  it.each([
+    {
+      cause: Object.assign(new Error("SECRET broken pipe"), { code: "EPIPE" }),
+      message: MCP_CONNECTION_LOST,
+    },
+    {
+      cause: new Error("SECRET transport stack"),
+      message: MCP_TRANSPORT_ERROR,
+    },
+  ])(
+    "reports transport recovery without exposing its cause ($message)",
+    async ({ cause, message }) => {
+      const output: string[] = [];
+      const shutdown: Array<() => void> = [];
+      const shutdownUnregistrations: string[] = [];
+      let options: McpServeOptions | undefined;
+      let closeCalls = 0;
+      const close = (): Promise<void> => {
+        closeCalls += 1;
+        return Promise.resolve();
+      };
+      const exitCodes: number[] = [];
+      expect(
+        await run(
+          dependencies({
+            serve: (_factory, received) => {
+              options = received;
+              return { close };
+            },
+            output,
+            shutdown,
+            exitCodes,
+            shutdownUnregistrations,
+          }),
+        ),
+      ).toBe(0);
+      options?.onerror?.(cause);
+      expect(output).toEqual([`${message}\n`]);
+      shutdown[0]?.();
+      await nextTurn();
+      expect(closeCalls).toBe(1);
+      expect(shutdownUnregistrations).toEqual(["shutdown"]);
+    },
+  );
 
   it("unregisters every process-lifetime handler during idempotent shutdown", async () => {
     const shutdown: Array<() => void> = [];
