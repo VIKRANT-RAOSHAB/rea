@@ -8,8 +8,12 @@ import {
   analysisCliErrorEnvelopeSchema,
   analysisErrorProjectionSchema,
 } from "../../../src/contracts/errorSchemas.js";
+import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
-import { REFERENCE_SOURCE_MAX_BYTES } from "../../../src/reference/ReferenceSourceLimits.js";
+import {
+  REFERENCE_SOURCE_MAX_BYTES,
+  REFERENCE_SOURCE_METADATA_MAX_BYTES,
+} from "../../../src/reference/ReferenceSourceLimits.js";
 
 const unsupportedHostOutput = expect.objectContaining({
   error: "Import failed",
@@ -96,6 +100,55 @@ cliTest.skipIf(process.platform === "win32")(
       },
     });
     expect(result.stdout.length).toBeLessThan(10_000);
+    expect(result.exitCode).toBe(1);
+  },
+);
+
+cliTest.skipIf(process.platform === "win32")(
+  "reports oversized packed Git metadata as a resource constraint",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-reference-cli-git-limit-");
+    await execFileOutput("git", ["init", "--initial-branch=main"], {
+      cwd: root,
+    });
+    await writeFile(join(root, "main.ts"), "export const value = 1;\n");
+    await execFileOutput(
+      "git",
+      [
+        "-c",
+        "user.name=REA fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "fixture",
+      ],
+      { cwd: root },
+    );
+    await execFileOutput("git", ["pack-refs", "--all", "--prune"], {
+      cwd: root,
+    });
+    await truncate(
+      join(root, ".git", "packed-refs"),
+      REFERENCE_SOURCE_METADATA_MAX_BYTES + 1,
+    );
+
+    const result = await cli.run({
+      arguments: ["import-reference-source", root, "--json"],
+      cwd: root,
+    });
+
+    expect(result.json).toMatchObject({
+      error: "Import failed",
+      code: "resource_constraint",
+      category: "resource_constraint",
+      details: {
+        diagnostics: { reference_source_code: "limit" },
+      },
+    });
     expect(result.exitCode).toBe(1);
   },
 );

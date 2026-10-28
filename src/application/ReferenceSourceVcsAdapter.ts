@@ -6,7 +6,10 @@ import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.j
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { RegularFileCleanupFailure } from "../filesystem/OwnedRegularFile.js";
 import { readRegularFile, retryRegularFileCleanup } from "./RegularFileRead.js";
-import { referenceSourceResourceFailure } from "../reference/ReferenceSourceReaderErrors.js";
+import {
+  failure,
+  referenceSourceResourceFailure,
+} from "../reference/ReferenceSourceReaderErrors.js";
 import type { ReferenceSourceReaderError } from "../reference/ReferenceSourceReaderTypes.js";
 import {
   REFERENCE_SOURCE_METADATA_MAX_BYTES,
@@ -37,6 +40,8 @@ export const readReferenceSourceVcs = async (
       try {
         return ok(await resolveSourceVcs(root, resources, signal));
       } catch (cause: unknown) {
+        if (cause instanceof ReferenceSourceMetadataLimitError)
+          return err({ ...failure("limit", cause.message), cause });
         if (cause instanceof ArtifactReaderFailure) throw cause;
         return ok(unknownVcs());
       }
