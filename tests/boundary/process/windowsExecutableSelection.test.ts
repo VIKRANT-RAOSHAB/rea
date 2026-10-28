@@ -12,13 +12,22 @@ processTest.skipIf(process.platform !== "win32")(
     const working = join(root, "project");
     const trusted = join(root, "selected tools");
     const marker = join(root, "selected-update.txt");
+    const recorder = join(root, "record-update.cjs");
+    await writeFile(
+      recorder,
+      `
+      const [selection, marker, ...arguments_] = process.argv.slice(2);
+      require('node:fs').appendFileSync(marker, JSON.stringify([selection, ...arguments_]) + '\\n');
+      process.stdout.write(selection);
+    `,
+    );
     await Promise.all([mkdir(working), mkdir(trusted)]);
     for (const directory of [working, trusted]) {
       await copyFile(process.execPath, join(directory, "adb.exe"));
       await writeFile(join(directory, "apktool.cmd"), "@echo 2.12.1\r\n");
       await writeFile(
         join(directory, "npm.cmd"),
-        `@echo ${directory === trusted ? "selected" : "cwd"} %*>>"${marker}"\r\n@echo ${directory === trusted ? "selected" : "cwd"}\r\n`,
+        `@"${process.execPath}" "${recorder}" "${directory === trusted ? "selected" : "cwd"}" "${marker}" %*\r\n`,
       );
     }
     const moduleUrl = (name: string) =>
@@ -72,11 +81,14 @@ processTest.skipIf(process.platform !== "win32")(
     expect(result.exitCode, result.stderr).toBe(0);
     expect(result.stdout).toBe("verified");
     expect(
-      (await readFile(marker, "utf8")).split(/\r?\n/u).filter(Boolean),
+      (await readFile(marker, "utf8"))
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => JSON.parse(line)),
     ).toEqual([
-      "selected prefix --global",
-      "selected install --global fixture@0.0.0",
-      "cwd prefix",
+      ["selected", "prefix", "--global"],
+      ["selected", "install", "--global", "fixture@0.0.0"],
+      ["cwd", "prefix"],
     ]);
   },
 );

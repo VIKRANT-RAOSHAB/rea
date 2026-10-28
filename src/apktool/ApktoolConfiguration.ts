@@ -296,7 +296,8 @@ export const inspectApktoolClient = async (
     );
   }
   let interpreted:
-    Result<ApktoolClientIdentity, ApktoolConfigurationFailure> | undefined;
+    | Result<ApktoolClientIdentity, ApktoolConfigurationFailure>
+    | undefined;
   try {
     // The owned process group stops a shell launcher's children with it; a
     // child holding inherited output pipes cannot outlive the deadline.

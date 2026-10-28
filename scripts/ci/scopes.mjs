@@ -101,6 +101,12 @@ export const SCOPES = {
   ],
   // Four-host installed-package matrix and the Windows curated lane.
   package: [
+    // Default command selection must run the native Windows launch regressions.
+    "src/process/WindowsExecutable*.ts",
+    "src/adb/AdbConfiguration.ts",
+    "src/apktool/ApktoolConfiguration.ts",
+    "src/application/UpdateCommandRunner.ts",
+    "tests/boundary/process/windowsExecutableSelection.test.ts",
     // Both host compilers must be exercised when their installation, options,
     // or entrypoints change; Linux's accelerated checker cannot stand in for Go.
     "scripts/run-typescript.*",

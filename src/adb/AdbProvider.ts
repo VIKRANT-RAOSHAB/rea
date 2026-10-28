@@ -224,7 +224,8 @@ const adbDigestError = (
   cause: unknown,
   operation: string,
   partialObservation:
-    AdbAcquiredFilePartialObservation | AdbPackagePullPartialObservation,
+    | AdbAcquiredFilePartialObservation
+    | AdbPackagePullPartialObservation,
 ): AnalysisError | undefined => {
   if (!(cause instanceof AdbDigestFailure)) return undefined;
   const digestFailure = cause.fileFailure;
@@ -304,7 +305,8 @@ type AdbDeviceDigest =
 
 const partialObservationWithDigest = (
   observation:
-    AdbAcquiredFilePartialObservation | AdbPackagePullPartialObservation,
+    | AdbAcquiredFilePartialObservation
+    | AdbPackagePullPartialObservation,
   digest: AdbFileDigest,
 ): AdbAcquiredFilePartialObservation | AdbPackagePullPartialObservation => {
   if (observation.operation === "pull_adb_file") {
