@@ -203,6 +203,9 @@ test.for(["handoff", "not-found"] as const)(
   async (launchMode, { workspace }) => {
     const target = workspace.path("target");
     await copyFile("/usr/bin/true", target);
+    // Budget the complete native startup, including cold helper preparation.
+    // The scenario below requires observed handoff, not a pre-launch timeout.
+    const startupTimeoutMs = 10_000;
     const mode = await workspace.write("mode", launchMode);
     const receipt = workspace.path("bootstrap-path");
     const transport = new StdioClientTransport({
@@ -219,7 +222,7 @@ test.for(["handoff", "not-found"] as const)(
           mode,
           receipt,
         ]),
-        REA_HOPPER_STARTUP_TIMEOUT_MS: "2000",
+        REA_HOPPER_STARTUP_TIMEOUT_MS: String(startupTimeoutMs),
         REA_LOG_LEVEL: "silent",
       },
     });
@@ -248,6 +251,10 @@ test.for(["handoff", "not-found"] as const)(
       true,
     );
     const initial = parseMcpToolError(await call("current_document"));
+    // Capture ownership evidence before result assertions so teardown retains
+    // the runtime even when the asserted failure stage regresses.
+    const bootstrapPath = await readFile(receipt, "utf8");
+    runtime = dirname(bootstrapPath);
     expect(initial.error).toMatchObject({
       code: "cleanup_incomplete",
       details: {
@@ -259,7 +266,7 @@ test.for(["handoff", "not-found"] as const)(
                 : "provider_unavailable",
             details:
               launchMode === "handoff"
-                ? { timeout_ms: 2000, launcher: { exit_code: 0 } }
+                ? { timeout_ms: startupTimeoutMs, launcher: { exit_code: 0 } }
                 : { stage: "launch", launcher: { exit_code: 3 } },
           },
         },
@@ -290,7 +297,7 @@ test.for(["handoff", "not-found"] as const)(
     expect(parseMcpToolError(await call("close_binary")).error.code).toBe(
       "cleanup_incomplete",
     );
-    const bootstrap = await readFile(await readFile(receipt, "utf8"), "utf8");
+    const bootstrap = await readFile(bootstrapPath, "utf8");
     const setting = (name: string): string => {
       const line = bootstrap
         .split("\n")
