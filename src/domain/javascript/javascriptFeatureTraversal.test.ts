@@ -142,4 +142,55 @@ describe("traverseApplicationFeature", () => {
     );
     expect(ids(traversal.nodes)).not.toContain(firstModule.node_id);
   });
+
+  it("returns complete one-direction paths to terminals on both sides", () => {
+    // caller -> seed -> outgoing storage; incoming storage -> caller.
+    const seed = node("javascript-module", "seed.js#module");
+    const caller = node("javascript-module", "caller.js#module");
+    const outgoingKey = node("storage", "outgoing-key");
+    const incomingKey = node("storage", "incoming-key");
+    const persists = edge(seed, outgoingKey, "persists_to");
+    const imports = edge(caller, seed, "imports");
+    const calls = edge(incomingKey, caller, "calls");
+    const trace = traceApplicationFeature({
+      sourceEvidenceId: `ev_${"b".repeat(64)}`,
+      graph: createJavaScriptApplicationGraph({
+        schema: "JavaScriptApplicationGraph",
+        root_node_ids: [caller.node_id],
+        nodes: [seed, caller, outgoingKey, incomingKey],
+        edges: [persists, imports, calls],
+        coverage: completeCoverage,
+        limitations: [],
+      }),
+      nativeEvidence: [],
+      seed: {
+        kind: "node-id",
+        value: seed.node_id,
+        match: "exact",
+        case_sensitive: true,
+      },
+      direction: "both",
+    });
+
+    expect(
+      trace.paths
+        .map(({ end_node_id, node_ids, edge_ids }) => ({
+          end_node_id,
+          node_ids,
+          edge_ids,
+        }))
+        .sort((left, right) => left.node_ids.length - right.node_ids.length),
+    ).toEqual([
+      {
+        end_node_id: outgoingKey.node_id,
+        node_ids: [seed.node_id, outgoingKey.node_id],
+        edge_ids: [persists.edge_id],
+      },
+      {
+        end_node_id: incomingKey.node_id,
+        node_ids: [seed.node_id, caller.node_id, incomingKey.node_id],
+        edge_ids: [imports.edge_id, calls.edge_id],
+      },
+    ]);
+  });
 });
