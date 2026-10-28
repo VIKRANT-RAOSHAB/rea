@@ -95,11 +95,23 @@ export const verifyAndroidMetadata = async ({
     );
     assert.match(
       result.stdout,
+      /NATIVE_DECLARATION_REGRESSION_PASS raw=true native_only=true unicode=true overloads=true duplicate_dex=true partial=true no_source=true/u,
+    );
+    assert.match(
+      result.stdout,
+      /NATIVE_DECLARATION_COLD_PASS no_apk_load=true raw=true/u,
+    );
+    assert.match(
+      result.stdout,
       /MERGED_METHOD_REGRESSION_PASS exact=true overloaded=true handlers=true/u,
     );
     assert.match(
       result.stdout,
       /CONSTANT_FIELD_REGRESSION_PASS encoded=9 absent=4 opt_in=true/u,
+    );
+    assert.match(
+      result.stdout,
+      /RAW_MEMBER_NAME_REGRESSION_PASS reserved=true overloads=2 inner=true/u,
     );
     assert.match(
       result.stdout,

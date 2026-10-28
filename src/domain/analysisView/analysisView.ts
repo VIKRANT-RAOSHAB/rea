@@ -312,6 +312,19 @@ import {
   androidComponentSummarySchema,
 } from "./androidPackageView.js";
 import {
+  projectAndroidSymbolSummary,
+  androidClassSummarySchema,
+  androidMethodSummarySchema,
+} from "./androidSymbolView.js";
+import {
+  projectAndroidJniView,
+  androidJniSummarySchema,
+} from "./androidJniView.js";
+import {
+  androidJniViewRequestSchema,
+  androidJniViewItemsSchema,
+} from "../android/androidJniQuery.js";
+import {
   projectDartAotView,
   dartAotSummarySchema,
   dartAotViewRequestSchema,
@@ -441,6 +454,7 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   managedViewRequestSchema,
   managedMembersViewRequestSchema,
   androidViewRequestSchema,
+  androidJniViewRequestSchema,
   apiSurfaceViewSchema,
   environmentManifestViewRequestSchema,
   environmentStateViewRequestSchema,
@@ -559,6 +573,9 @@ const viewResultBase = {
     "inspect_managed_members",
     "inspect_web_network_capture",
     "inspect_android_package",
+    "inspect_android_class",
+    "inspect_android_method",
+    "inspect_android_jni_bindings",
     "inspect_pcap_capture",
     "inspect_dart_aot",
     "inspect_il2cpp_metadata",
@@ -862,6 +879,37 @@ export const androidPackageSummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
   parent_operation: z.literal("inspect_android_package"),
   summary: androidPackageSummarySchema,
+});
+export const androidJniSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_android_jni_bindings"),
+  summary: androidJniSummarySchema,
+});
+export const androidJniPageViewResultSchema = z.strictObject({
+  ...viewResultBase,
+  kind: z.literal("android-jni"),
+  parent_operation: z.literal("inspect_android_jni_bindings"),
+  view: androidJniViewRequestSchema,
+  items: androidJniViewItemsSchema,
+  source: androidJniSummarySchema.pick({
+    native_inventory: true,
+    library_inventory: true,
+    selection: true,
+  }),
+});
+
+/** Exact class facts with complete raw protocol Evidence retained separately. */
+export const androidClassSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_android_class"),
+  summary: androidClassSummarySchema,
+});
+
+/** Exact selected method body, source coverage and optional mapping facts. */
+export const androidMethodSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_android_method"),
+  summary: androidMethodSummarySchema,
 });
 
 /** Legacy manifest views keep their original shape; new facets are explicit. */
@@ -1255,6 +1303,9 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     webNetworkCaptureSummaryViewResultSchema,
     browserScenarioSummaryViewResultSchema,
     androidPackageSummaryViewResultSchema,
+    androidJniSummaryViewResultSchema,
+    androidClassSummaryViewResultSchema,
+    androidMethodSummaryViewResultSchema,
     pcapCaptureSummaryViewResultSchema,
     dartAotSummaryViewResultSchema,
     il2cppMetadataSummaryViewResultSchema,
@@ -1429,6 +1480,7 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     parent_operation: z.literal("inspect_managed_members"),
   }),
   androidPackageViewResultSchema,
+  androidJniPageViewResultSchema,
   z.strictObject({
     kind: z.literal("dart-aot"),
     view: dartAotViewRequestSchema,
@@ -1574,6 +1626,9 @@ const retainedViewProjectors = new Map<string, typeof projectWasmArtifactView>([
   ["inspect_managed_artifact", projectManagedArtifactView],
   ["inspect_managed_members", projectManagedMemberView],
   ["inspect_android_package", projectAndroidPackageView],
+  ["inspect_android_class", projectAndroidSymbolSummary],
+  ["inspect_android_method", projectAndroidSymbolSummary],
+  ["inspect_android_jni_bindings", projectAndroidJniView],
   ["capture_browser_scenario", projectBrowserScenarioView],
   ["inspect_dart_aot", projectDartAotView],
   ["inspect_il2cpp_metadata", projectIl2cppMetadataView],
